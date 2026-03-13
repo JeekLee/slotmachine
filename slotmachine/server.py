@@ -342,7 +342,7 @@ def classify_inbox() -> dict:
     """
     settings = get_settings()
 
-    from slotmachine.classifier.para import load_inbox, load_template
+    from slotmachine.classifier.para import load_inbox, load_template, get_vault_structure
     docs = load_inbox(settings.inbox_path, settings.vault_path)
 
     # 카테고리별 템플릿 내용 로드
@@ -351,6 +351,9 @@ def classify_inbox() -> dict:
         for category, tmpl_rel in settings.template_map.items()
         if tmpl_rel
     }
+
+    # vault 하위 디렉토리 구조 + 기존 문서 목록
+    vault_structure = get_vault_structure(settings.vault_path, settings.para_folder_map)
 
     return {
         "inbox_path": str(settings.inbox_path),
@@ -366,6 +369,7 @@ def classify_inbox() -> dict:
             for doc in docs
         ],
         "templates": templates,
+        "vault_structure": vault_structure,
     }
 
 
@@ -379,8 +383,9 @@ def apply_classification(
     Args:
         classifications: 이동할 문서 목록
             각 항목: {
-                "path": "00_Inbox/파일명.md",
-                "category": "Projects",
+                "path": "00_Inbox/파일명.md",       (필수)
+                "category": "Projects",              (필수)
+                "target_folder": "20_Projects/CryptoLab/Rocky",  (선택 — 생략 시 category 폴더)
                 "content": "재작성된 전체 문서 내용"  (선택 — 생략 시 원본 유지)
             }
             category 값: Projects / Areas / Resources / Archives / Inbox

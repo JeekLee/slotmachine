@@ -6,6 +6,7 @@ import pytest
 from slotmachine.classifier.para import (
     DEFAULT_PARA_FOLDERS,
     apply_classification,
+    get_vault_structure,
     load_inbox,
     load_template,
 )
@@ -203,6 +204,70 @@ class TestApplyClassification:
         apply_classification(vault, classifications)
         actual = (vault / "Resources" / "독서노트.md").read_text(encoding="utf-8")
         assert actual == original
+
+    def test_target_folder_overrides_category_folder(self, vault, inbox_with_docs):
+        """target_folder가 있으면 category 폴더 대신 해당 경로로 이동한다."""
+        classifications = [
+            {
+                "path": "INBOX/프로젝트A.md",
+                "category": "Projects",
+                "target_folder": "Projects/SubTeam/Rocky",
+            }
+        ]
+        result = apply_classification(vault, classifications)
+        assert result.moved == 1
+        assert (vault / "Projects" / "SubTeam" / "Rocky" / "프로젝트A.md").exists()
+        assert not (vault / "Projects" / "프로젝트A.md").exists()
+
+    def test_target_folder_created_if_missing(self, vault, inbox_with_docs):
+        """target_folder가 없으면 자동 생성한다."""
+        classifications = [
+            {
+                "path": "INBOX/독서노트.md",
+                "category": "Resources",
+                "target_folder": "Resources/NewSubDir",
+            }
+        ]
+        apply_classification(vault, classifications)
+        assert (vault / "Resources" / "NewSubDir" / "독서노트.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# get_vault_structure
+# ---------------------------------------------------------------------------
+
+class TestGetVaultStructure:
+    def test_returns_subdirs_and_doc_titles(self, vault: Path):
+        para_map = {"Projects": "Projects", "Resources": "Resources"}
+        proj = vault / "Projects"
+        proj.mkdir()
+        (proj / "SubA").mkdir()
+        (proj / "SubA" / "SubB").mkdir()
+        (proj / "SubA" / "note.md").write_text("# note", encoding="utf-8")
+
+        structure = get_vault_structure(vault, para_map)
+        assert "Projects" in structure
+        subdirs = structure["Projects"]["subdirs"]
+        assert any("SubA" in s for s in subdirs)
+        assert "note" in structure["Projects"]["doc_titles"]
+
+    def test_missing_para_folder_returns_empty(self, vault: Path):
+        para_map = {"Areas": "30_Areas"}  # 폴더가 실제로 없음
+        structure = get_vault_structure(vault, para_map)
+        assert structure["Areas"]["subdirs"] == []
+        assert structure["Areas"]["doc_titles"] == []
+
+    def test_hidden_dirs_excluded(self, vault: Path):
+        para_map = {"Projects": "Projects"}
+        proj = vault / "Projects"
+        proj.mkdir()
+        (proj / ".obsidian").mkdir()
+        (proj / ".obsidian" / "hidden.md").write_text("# hidden", encoding="utf-8")
+        (proj / "visible.md").write_text("# visible", encoding="utf-8")
+
+        structure = get_vault_structure(vault, para_map)
+        assert "visible" in structure["Projects"]["doc_titles"]
+        assert "hidden" not in structure["Projects"]["doc_titles"]
 
 
 # ---------------------------------------------------------------------------

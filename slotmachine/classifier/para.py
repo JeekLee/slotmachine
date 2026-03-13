@@ -23,6 +23,9 @@ DEFAULT_PARA_FOLDERS: dict[str, str] = {
 # 분류 결과 미리보기 최대 길이
 _EXCERPT_MAX = 300
 
+# vault 구조 스캔에서 제외할 최상위 폴더 패턴
+_EXCLUDE_PREFIXES = (".", "00_", "90_")
+
 
 @dataclass
 class InboxDocument:
@@ -102,6 +105,54 @@ def load_template(vault_path: Path, template_rel: str) -> str:
         return ""
 
 
+def get_vault_structure(
+    vault_path: Path,
+    para_folder_map: dict[str, str],
+) -> dict[str, list[str]]:
+    """각 PARA 폴더의 하위 디렉토리 구조와 문서 제목 목록을 반환한다.
+
+    LLM이 적절한 하위 디렉토리를 선택하고 위키링크를 추가할 수 있도록
+    vault의 기존 구조 정보를 제공한다.
+
+    Args:
+        vault_path: vault 루트 절대 경로
+        para_folder_map: 카테고리 → PARA 폴더명 매핑
+    Returns:
+        카테고리 → {
+            "subdirs": [하위 폴더 상대경로, ...],
+            "doc_titles": [문서 제목(파일명 stem), ...]
+        }
+    """
+    structure: dict[str, dict] = {}
+
+    for category, folder_name in para_folder_map.items():
+        folder_path = vault_path / folder_name
+        if not folder_path.exists():
+            structure[category] = {"subdirs": [], "doc_titles": []}
+            continue
+
+        # 하위 디렉토리 수집 (숨김 제외)
+        subdirs: list[str] = []
+        for d in sorted(folder_path.rglob("*")):
+            if d.is_dir() and not any(p.startswith(".") for p in d.parts):
+                rel = str(d.relative_to(vault_path))
+                subdirs.append(rel)
+
+        # 문서 제목 수집 (파일명 stem)
+        doc_titles: list[str] = [
+            f.stem
+            for f in sorted(folder_path.rglob("*.md"))
+            if not any(p.startswith(".") for p in f.parts)
+        ]
+
+        structure[category] = {
+            "subdirs": subdirs,
+            "doc_titles": doc_titles,
+        }
+
+    return structure
+
+
 def apply_classification(
     vault_path: Path,
     classifications: list[dict],
@@ -109,14 +160,13 @@ def apply_classification(
 ) -> ClassifyResult:
     """승인된 분류 결과에 따라 파일을 이동한다.
 
-    각 항목에 content가 포함된 경우 이동 전 파일을 해당 내용으로 덮어쓴다.
-    (LLM이 템플릿에 맞게 재작성한 내용을 적용하는 용도)
-
     Args:
         vault_path: vault 루트 절대 경로
-        classifications: [{path, category, content(optional)}, ...] 목록
-            - path: vault 기준 상대 경로
+        classifications: [{path, category, target_folder?, content?}, ...] 목록
+            - path: vault 기준 원본 상대 경로
             - category: Projects / Areas / Resources / Archives / Inbox
+            - target_folder: 이동할 폴더 (vault 기준 상대경로, 생략 시 category 폴더 사용)
+              예: "20_Projects/CryptoLab/Rocky"
             - content: LLM이 재작성한 문서 내용 (생략 시 원본 유지)
         para_folder_map: 카테고리 → 폴더명 매핑 (None이면 기본값 사용)
     Returns:
@@ -128,10 +178,10 @@ def apply_classification(
     for item in classifications:
         rel_path = item.get("path", "")
         category = item.get("category", "")
-        content = item.get("content")  # LLM 재작성 내용 (선택)
+        target_folder_rel = item.get("target_folder", "")
+        content = item.get("content")
 
         if category not in folders:
-            # Inbox 또는 알 수 없는 카테고리 → 이동 안 함
             result.skipped += 1
             continue
 
@@ -151,7 +201,12 @@ def apply_classification(
                 result.skipped += 1
                 continue
 
-        target_folder = vault_path / folders[category]
+        # 목적지 폴더: target_folder > category 폴더
+        if target_folder_rel:
+            target_folder = vault_path / target_folder_rel
+        else:
+            target_folder = vault_path / folders[category]
+
         target_folder.mkdir(parents=True, exist_ok=True)
         dst = target_folder / src.name
 
@@ -165,7 +220,7 @@ def apply_classification(
 
         try:
             shutil.move(str(src), str(dst))
-            logger.info("이동: %s → %s", src.name, target_folder.name)
+            logger.info("이동: %s → %s", src.name, target_folder)
             result.moved += 1
         except Exception as exc:
             result.errors.append(f"{src.name}: {exc}")
