@@ -13,8 +13,9 @@
       "description": "Obsidian vault를 GraphDB에 연동해 RAG 기능을 제공하는 Second Brain MCP 플러그인",
       "version": "0.1.0",
       "source": {
-        "source": "github",
-        "repo": "JeekLee/slotmachine"
+        "source": "url",
+        "url": "https://github.com/JeekLee/slotmachine.git",
+        "ref": "main"
       },
       "author": {
         "name": "JeekLee"
