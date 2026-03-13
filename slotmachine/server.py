@@ -158,9 +158,20 @@ def config_vault(
     Returns:
         저장 결과 및 다음 단계 안내
     """
+    # Neo4j 설정이 없으면 Docker 자동 관리 모드로 전환
+    docker_mode = not neo4j_password and not neo4j_uri
+    if docker_mode:
+        neo4j_uri = "bolt://localhost:7687"
+        neo4j_username = neo4j_username or "neo4j"
+        neo4j_password = "slotmachine"
+        neo4j_mode = "docker"
+    else:
+        neo4j_mode = "external"
+
     config_path = write_config({
         "VAULT_PATH": vault_path,
         "NEO4J_PASSWORD": neo4j_password,
+        "NEO4J_MODE": neo4j_mode,
         "GIT_REPO_URL": git_repo_url,
         "GIT_SSH_KEY_PATH": git_ssh_key_path,
         "EMBEDDING_PROVIDER": embedding_provider,
@@ -173,11 +184,18 @@ def config_vault(
         "NEO4J_USERNAME": neo4j_username,
         "EMBEDDING_MODEL": embedding_model,
     })
+
+    neo4j_note = (
+        "\nNeo4j 설정이 없어 Docker 자동 관리 모드로 설정되었습니다.\n"
+        "MCP 서버 시작 시 Docker로 Neo4j가 자동 실행됩니다 (Docker 필요)."
+        if docker_mode else ""
+    )
     return {
         "success": True,
         "config_path": str(config_path),
+        "neo4j_mode": neo4j_mode,
         "message": (
-            f"설정이 저장되었습니다.\n"
+            f"설정이 저장되었습니다.{neo4j_note}\n"
             f"저장 경로: {config_path}\n"
             f"다음 단계: MCP 서버를 재시작한 뒤 init_vault를 실행하세요."
         ),

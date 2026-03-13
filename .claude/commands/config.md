@@ -20,7 +20,10 @@ SlotMachine 플러그인의 초기 설정을 진행한다.
 인자가 없으면 다음 항목을 한 번에 모아서 묻는다:
 
 1. **vault_path** (필수) — Obsidian vault 절대 경로
-2. **neo4j_password** (필수) — Neo4j 비밀번호
+2. **neo4j_password** (선택) — Neo4j 비밀번호
+   - 비워두면 **Docker 자동 관리 모드** 로 설정됨
+   - Docker가 설치되어 있으면 MCP 서버 시작 시 Neo4j 컨테이너를 자동으로 실행
+   - 외부 Neo4j 서버를 사용한다면 직접 입력
 3. **git_repo_url** (선택) — git remote URL (HTTPS 또는 SSH)
 4. **embedding_provider** (선택, 기본: jina) — `jina` / `openai` / `voyage` / `gemini` / `ollama`
 5. **해당 프로바이더의 API key** (선택)
