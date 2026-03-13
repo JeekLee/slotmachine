@@ -48,12 +48,18 @@ if [[ "$NEO4J_MODE" == "docker" ]]; then
     echo "[slotmachine] Docker를 설치하거나 외부 Neo4j URI를 설정하세요." >&2
   else
     cd "$PLUGIN_ROOT"
-    if docker compose ps neo4j 2>/dev/null | grep -q "running"; then
-      : # 이미 실행 중 — 아무것도 하지 않음
+    CONTAINER_STATE=$(docker inspect --format '{{.State.Status}}' slotmachine-neo4j 2>/dev/null || echo "missing")
+    if [[ "$CONTAINER_STATE" == "running" ]]; then
+      : # 이미 실행 중
+    elif [[ "$CONTAINER_STATE" == "missing" ]]; then
+      echo "[slotmachine] Neo4j 컨테이너 생성 및 시작 중..." >&2
+      NEO4J_PASSWORD=slotmachine docker compose up -d 2>/dev/null \
+        || echo "[slotmachine] WARNING: Neo4j 컨테이너 시작에 실패했습니다." >&2
     else
-      echo "[slotmachine] Neo4j 컨테이너 시작 중..." >&2
-      docker compose up -d 2>/dev/null \
-        || docker-compose up -d 2>/dev/null \
+      # exited / restarting 등 — 강제 재생성
+      echo "[slotmachine] Neo4j 컨테이너 재생성 중 (이전 상태: $CONTAINER_STATE)..." >&2
+      docker rm -f slotmachine-neo4j 2>/dev/null || true
+      NEO4J_PASSWORD=slotmachine docker compose up -d 2>/dev/null \
         || echo "[slotmachine] WARNING: Neo4j 컨테이너 시작에 실패했습니다." >&2
     fi
   fi
