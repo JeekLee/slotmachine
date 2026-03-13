@@ -92,6 +92,19 @@ class Settings(BaseSettings):
     vault_path: Path
     inbox_folder: str = "INBOX"
 
+    # --- PARA 폴더명 ---
+    para_projects: str = "Projects"
+    para_areas: str = "Areas"
+    para_resources: str = "Resources"
+    para_archives: str = "Archives"
+
+    # --- PARA 템플릿 (vault 기준 상대경로, 생략 가능) ---
+    template_inbox: str = ""
+    template_projects: str = ""
+    template_areas: str = ""
+    template_resources: str = ""
+    template_archives: str = ""
+
     # --- Git ---
     git_repo_url: str = ""
     git_ssh_key_path: Path | None = None
@@ -144,6 +157,27 @@ class Settings(BaseSettings):
     def inbox_path(self) -> Path:
         """INBOX 폴더의 절대 경로를 반환한다."""
         return self.vault_path / self.inbox_folder
+
+    @property
+    def para_folder_map(self) -> dict[str, str]:
+        """PARA 카테고리 → 폴더명 매핑을 반환한다."""
+        return {
+            "Projects": self.para_projects,
+            "Areas": self.para_areas,
+            "Resources": self.para_resources,
+            "Archives": self.para_archives,
+        }
+
+    @property
+    def template_map(self) -> dict[str, str]:
+        """PARA 카테고리 → 템플릿 상대경로 매핑을 반환한다. 빈 문자열은 템플릿 없음."""
+        return {
+            "Inbox": self.template_inbox,
+            "Projects": self.template_projects,
+            "Areas": self.template_areas,
+            "Resources": self.template_resources,
+            "Archives": self.template_archives,
+        }
 
     @property
     def embedding_dimension(self) -> int:

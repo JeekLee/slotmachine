@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from slotmachine.classifier.para import (
-    PARA_FOLDERS,
+    DEFAULT_PARA_FOLDERS,
     apply_classification,
     load_inbox,
 )
@@ -159,11 +159,67 @@ class TestApplyClassification:
     def test_all_para_categories_supported(self, vault: Path):
         inbox = vault / "INBOX"
         inbox.mkdir(exist_ok=True)
-        for category in PARA_FOLDERS:
+        for category in DEFAULT_PARA_FOLDERS:
             fname = f"test_{category}.md"
             (inbox / fname).write_text(f"# {category}", encoding="utf-8")
             result = apply_classification(
                 vault, [{"path": f"INBOX/{fname}", "category": category}]
             )
             assert result.moved == 1
-            assert (vault / PARA_FOLDERS[category] / fname).exists()
+            assert (vault / DEFAULT_PARA_FOLDERS[category] / fname).exists()
+
+    def test_custom_folder_names(self, vault, inbox_with_docs):
+        custom_map = {
+            "Projects": "프로젝트",
+            "Areas": "영역",
+            "Resources": "자료",
+            "Archives": "보관",
+        }
+        classifications = [
+            {"path": "INBOX/프로젝트A.md", "category": "Projects"},
+        ]
+        result = apply_classification(vault, classifications, para_folder_map=custom_map)
+        assert result.moved == 1
+        assert (vault / "프로젝트" / "프로젝트A.md").exists()
+
+    def test_template_applied_on_move(self, vault, inbox_with_docs):
+        # 템플릿 파일 생성 (frontmatter만 있는 .md)
+        tmpl_dir = vault / "Templates"
+        tmpl_dir.mkdir()
+        (tmpl_dir / "projects_template.md").write_text(
+            "---\nstatus: active\nreviewed: false\n---\n",
+            encoding="utf-8",
+        )
+        template_map = {"Projects": "Templates/projects_template.md"}
+        classifications = [
+            {"path": "INBOX/프로젝트A.md", "category": "Projects"},
+        ]
+        apply_classification(vault, classifications, template_map=template_map)
+
+        import frontmatter
+        moved = frontmatter.load(str(vault / "Projects" / "프로젝트A.md"))
+        assert moved.metadata.get("status") == "active"
+        assert moved.metadata.get("reviewed") is False
+
+    def test_template_does_not_overwrite_existing_frontmatter(self, vault: Path):
+        inbox = vault / "INBOX"
+        inbox.mkdir(exist_ok=True)
+        (inbox / "existing_fm.md").write_text(
+            "---\nstatus: done\n---\n# 이미 있는 frontmatter",
+            encoding="utf-8",
+        )
+        tmpl_dir = vault / "Templates"
+        tmpl_dir.mkdir()
+        (tmpl_dir / "tmpl.md").write_text(
+            "---\nstatus: active\nnew_key: hello\n---\n",
+            encoding="utf-8",
+        )
+        apply_classification(
+            vault,
+            [{"path": "INBOX/existing_fm.md", "category": "Projects"}],
+            template_map={"Projects": "Templates/tmpl.md"},
+        )
+        import frontmatter
+        moved = frontmatter.load(str(vault / "Projects" / "existing_fm.md"))
+        assert moved.metadata["status"] == "done"   # 기존 값 유지
+        assert moved.metadata["new_key"] == "hello" # 새 키는 추가

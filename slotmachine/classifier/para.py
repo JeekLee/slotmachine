@@ -12,8 +12,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# PARA 카테고리 → 대상 폴더명 매핑
-PARA_FOLDERS: dict[str, str] = {
+# 기본 PARA 카테고리 → 폴더명 (Settings 없이 사용할 때의 fallback)
+DEFAULT_PARA_FOLDERS: dict[str, str] = {
     "Projects": "Projects",
     "Areas": "Areas",
     "Resources": "Resources",
@@ -78,9 +78,41 @@ def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
     return docs
 
 
+def _apply_template(doc_path: Path, template_path: Path) -> None:
+    """템플릿의 frontmatter를 문서에 병합한다.
+
+    - 템플릿에만 있는 frontmatter 키를 문서에 추가한다.
+    - 문서에 이미 있는 키는 덮어쓰지 않는다.
+    - 템플릿이 없거나 파싱 실패 시 조용히 무시한다.
+    """
+    import frontmatter
+
+    if not template_path.exists():
+        logger.debug("템플릿 없음: %s", template_path)
+        return
+
+    try:
+        doc_post = frontmatter.load(str(doc_path))
+        tmpl_post = frontmatter.load(str(template_path))
+
+        updated = False
+        for key, value in tmpl_post.metadata.items():
+            if key not in doc_post.metadata:
+                doc_post.metadata[key] = value
+                updated = True
+
+        if updated:
+            doc_path.write_text(frontmatter.dumps(doc_post), encoding="utf-8")
+            logger.debug("템플릿 적용: %s ← %s", doc_path.name, template_path.name)
+    except Exception as exc:
+        logger.warning("템플릿 적용 실패 — %s: %s", doc_path.name, exc)
+
+
 def apply_classification(
     vault_path: Path,
     classifications: list[dict],
+    para_folder_map: dict[str, str] | None = None,
+    template_map: dict[str, str] | None = None,
 ) -> ClassifyResult:
     """승인된 분류 결과에 따라 파일을 이동한다.
 
@@ -89,16 +121,20 @@ def apply_classification(
         classifications: [{path: str, category: str}, ...] 목록
             - path: vault 기준 상대 경로
             - category: Projects / Areas / Resources / Archives / Inbox
+        para_folder_map: 카테고리 → 폴더명 매핑 (None이면 기본값 사용)
+        template_map: 카테고리 → 템플릿 상대경로 매핑 (None이면 템플릿 미적용)
     Returns:
         ClassifyResult
     """
+    folders = para_folder_map or DEFAULT_PARA_FOLDERS
+    templates = template_map or {}
     result = ClassifyResult()
 
     for item in classifications:
         rel_path = item.get("path", "")
         category = item.get("category", "")
 
-        if category not in PARA_FOLDERS:
+        if category not in folders:
             # Inbox 또는 알 수 없는 카테고리 → 이동 안 함
             result.skipped += 1
             continue
@@ -109,7 +145,7 @@ def apply_classification(
             result.skipped += 1
             continue
 
-        target_folder = vault_path / PARA_FOLDERS[category]
+        target_folder = vault_path / folders[category]
         target_folder.mkdir(parents=True, exist_ok=True)
         dst = target_folder / src.name
 
@@ -128,5 +164,11 @@ def apply_classification(
         except Exception as exc:
             result.errors.append(f"{src.name}: {exc}")
             result.skipped += 1
+            continue
+
+        # 템플릿 적용 (이동 후)
+        tmpl_rel = templates.get(category, "")
+        if tmpl_rel:
+            _apply_template(dst, vault_path / tmpl_rel)
 
     return result

@@ -129,6 +129,16 @@ def config_vault(
     neo4j_uri: str = "",
     neo4j_username: str = "",
     embedding_model: str = "",
+    inbox_folder: str = "",
+    para_projects: str = "",
+    para_areas: str = "",
+    para_resources: str = "",
+    para_archives: str = "",
+    template_inbox: str = "",
+    template_projects: str = "",
+    template_areas: str = "",
+    template_resources: str = "",
+    template_archives: str = "",
 ) -> dict:
     """SlotMachine 설정을 저장한다.
 
@@ -149,6 +159,16 @@ def config_vault(
         neo4j_uri: Neo4j URI (기본: bolt://localhost:7687)
         neo4j_username: Neo4j 사용자명 (기본: neo4j)
         embedding_model: 임베딩 모델명 (기본: 프로바이더 기본값)
+        inbox_folder: INBOX 폴더명 (기본: INBOX)
+        para_projects: Projects 폴더명 (기본: Projects)
+        para_areas: Areas 폴더명 (기본: Areas)
+        para_resources: Resources 폴더명 (기본: Resources)
+        para_archives: Archives 폴더명 (기본: Archives)
+        template_inbox: Inbox 템플릿 상대경로 (생략 가능)
+        template_projects: Projects 템플릿 상대경로 (생략 가능)
+        template_areas: Areas 템플릿 상대경로 (생략 가능)
+        template_resources: Resources 템플릿 상대경로 (생략 가능)
+        template_archives: Archives 템플릿 상대경로 (생략 가능)
     Returns:
         저장 결과 및 다음 단계 안내
     """
@@ -177,6 +197,16 @@ def config_vault(
         "NEO4J_URI": neo4j_uri,
         "NEO4J_USERNAME": neo4j_username,
         "EMBEDDING_MODEL": embedding_model,
+        "INBOX_FOLDER": inbox_folder,
+        "PARA_PROJECTS": para_projects,
+        "PARA_AREAS": para_areas,
+        "PARA_RESOURCES": para_resources,
+        "PARA_ARCHIVES": para_archives,
+        "TEMPLATE_INBOX": template_inbox,
+        "TEMPLATE_PROJECTS": template_projects,
+        "TEMPLATE_AREAS": template_areas,
+        "TEMPLATE_RESOURCES": template_resources,
+        "TEMPLATE_ARCHIVES": template_archives,
     })
 
     neo4j_note = (
@@ -350,7 +380,12 @@ def apply_classification(
     from slotmachine.classifier.para import apply_classification as _apply
     from slotmachine.sync.git_manager import GitManager
 
-    result = _apply(settings.vault_path, classifications)
+    result = _apply(
+        settings.vault_path,
+        classifications,
+        para_folder_map=settings.para_folder_map,
+        template_map=settings.template_map,
+    )
 
     if result.moved == 0:
         return {
