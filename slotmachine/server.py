@@ -331,18 +331,26 @@ def recall(query: str, top_k: int = 5) -> dict:
 
 @mcp.tool()
 def classify_inbox() -> dict:
-    """INBOX 폴더의 문서를 로드해 분류에 필요한 정보를 반환한다.
+    """INBOX 폴더의 문서를 로드해 분류 및 재작성에 필요한 정보를 반환한다.
 
-    분류 판단 자체는 호스트 LLM(Claude Code)이 수행한다.
-    이 툴은 문서 목록과 내용을 제공하는 역할만 한다.
+    분류 판단과 템플릿 기반 문서 재작성은 호스트 LLM(Claude Code)이 수행한다.
+    이 툴은 문서 목록, 전체 내용, 카테고리별 템플릿을 제공하는 역할만 한다.
 
     Returns:
-        inbox_path, 문서 목록(path/title/tags/excerpt), 총 문서 수
+        inbox_path, 문서 목록(path/title/tags/excerpt/full_content),
+        카테고리별 템플릿 내용(templates), 총 문서 수
     """
     settings = get_settings()
 
-    from slotmachine.classifier.para import load_inbox
+    from slotmachine.classifier.para import load_inbox, load_template
     docs = load_inbox(settings.inbox_path, settings.vault_path)
+
+    # 카테고리별 템플릿 내용 로드
+    templates = {
+        category: load_template(settings.vault_path, tmpl_rel)
+        for category, tmpl_rel in settings.template_map.items()
+        if tmpl_rel
+    }
 
     return {
         "inbox_path": str(settings.inbox_path),
@@ -353,9 +361,11 @@ def classify_inbox() -> dict:
                 "title": doc.title,
                 "tags": doc.tags,
                 "excerpt": doc.excerpt,
+                "full_content": doc.full_content,
             }
             for doc in docs
         ],
+        "templates": templates,
     }
 
 
@@ -368,7 +378,11 @@ def apply_classification(
 
     Args:
         classifications: 이동할 문서 목록
-            각 항목: {"path": "INBOX/파일명.md", "category": "Projects"}
+            각 항목: {
+                "path": "00_Inbox/파일명.md",
+                "category": "Projects",
+                "content": "재작성된 전체 문서 내용"  (선택 — 생략 시 원본 유지)
+            }
             category 값: Projects / Areas / Resources / Archives / Inbox
             (Inbox는 이동하지 않고 건너뜀)
         commit_message: 커밋 메시지 (생략 시 자동 생성)
@@ -384,7 +398,6 @@ def apply_classification(
         settings.vault_path,
         classifications,
         para_folder_map=settings.para_folder_map,
-        template_map=settings.template_map,
     )
 
     if result.moved == 0:

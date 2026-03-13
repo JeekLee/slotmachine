@@ -7,6 +7,7 @@ from slotmachine.classifier.para import (
     DEFAULT_PARA_FOLDERS,
     apply_classification,
     load_inbox,
+    load_template,
 )
 
 
@@ -182,44 +183,61 @@ class TestApplyClassification:
         assert result.moved == 1
         assert (vault / "프로젝트" / "프로젝트A.md").exists()
 
-    def test_template_applied_on_move(self, vault, inbox_with_docs):
-        # 템플릿 파일 생성 (frontmatter만 있는 .md)
-        tmpl_dir = vault / "Templates"
-        tmpl_dir.mkdir()
-        (tmpl_dir / "projects_template.md").write_text(
-            "---\nstatus: active\nreviewed: false\n---\n",
-            encoding="utf-8",
-        )
-        template_map = {"Projects": "Templates/projects_template.md"}
+    def test_content_written_before_move(self, vault, inbox_with_docs):
+        """content 필드가 있으면 이동 전 파일에 덮어쓴다."""
+        rewritten = "---\nstatus: active\n---\n# 프로젝트A (재작성됨)\n\n재작성된 내용"
         classifications = [
-            {"path": "INBOX/프로젝트A.md", "category": "Projects"},
+            {"path": "INBOX/프로젝트A.md", "category": "Projects", "content": rewritten},
         ]
-        apply_classification(vault, classifications, template_map=template_map)
+        result = apply_classification(vault, classifications)
+        assert result.moved == 1
+        actual = (vault / "Projects" / "프로젝트A.md").read_text(encoding="utf-8")
+        assert actual == rewritten
 
-        import frontmatter
-        moved = frontmatter.load(str(vault / "Projects" / "프로젝트A.md"))
-        assert moved.metadata.get("status") == "active"
-        assert moved.metadata.get("reviewed") is False
+    def test_no_content_preserves_original(self, vault, inbox_with_docs):
+        """content 필드가 없으면 원본 내용을 그대로 이동한다."""
+        original = (vault / "INBOX" / "독서노트.md").read_text(encoding="utf-8")
+        classifications = [
+            {"path": "INBOX/독서노트.md", "category": "Resources"},
+        ]
+        apply_classification(vault, classifications)
+        actual = (vault / "Resources" / "독서노트.md").read_text(encoding="utf-8")
+        assert actual == original
 
-    def test_template_does_not_overwrite_existing_frontmatter(self, vault: Path):
+
+# ---------------------------------------------------------------------------
+# load_inbox — full_content
+# ---------------------------------------------------------------------------
+
+class TestLoadInboxFullContent:
+    def test_full_content_returned(self, vault, inbox_with_docs):
+        docs = load_inbox(vault / "INBOX", vault)
+        for doc in docs:
+            assert doc.full_content  # 비어있지 않음
+            assert isinstance(doc.full_content, str)
+
+    def test_full_content_includes_frontmatter(self, vault: Path):
         inbox = vault / "INBOX"
-        inbox.mkdir(exist_ok=True)
-        (inbox / "existing_fm.md").write_text(
-            "---\nstatus: done\n---\n# 이미 있는 frontmatter",
-            encoding="utf-8",
-        )
-        tmpl_dir = vault / "Templates"
-        tmpl_dir.mkdir()
-        (tmpl_dir / "tmpl.md").write_text(
-            "---\nstatus: active\nnew_key: hello\n---\n",
-            encoding="utf-8",
-        )
-        apply_classification(
-            vault,
-            [{"path": "INBOX/existing_fm.md", "category": "Projects"}],
-            template_map={"Projects": "Templates/tmpl.md"},
-        )
-        import frontmatter
-        moved = frontmatter.load(str(vault / "Projects" / "existing_fm.md"))
-        assert moved.metadata["status"] == "done"   # 기존 값 유지
-        assert moved.metadata["new_key"] == "hello" # 새 키는 추가
+        raw = "---\ntags: [test]\n---\n# 제목\n본문"
+        (inbox / "fm_test.md").write_text(raw, encoding="utf-8")
+        docs = load_inbox(inbox, vault)
+        assert docs[0].full_content == raw
+
+
+# ---------------------------------------------------------------------------
+# load_template
+# ---------------------------------------------------------------------------
+
+class TestLoadTemplate:
+    def test_returns_template_content(self, vault: Path):
+        tmpl = vault / "Templates" / "project.md"
+        tmpl.parent.mkdir()
+        tmpl.write_text("---\nstatus: active\n---\n## 목표", encoding="utf-8")
+        content = load_template(vault, "Templates/project.md")
+        assert "status: active" in content
+
+    def test_missing_template_returns_empty(self, vault: Path):
+        assert load_template(vault, "Templates/없는파일.md") == ""
+
+    def test_empty_rel_path_returns_empty(self, vault: Path):
+        assert load_template(vault, "") == ""

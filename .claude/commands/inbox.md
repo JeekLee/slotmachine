@@ -7,9 +7,9 @@ allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__apply_classif
 
 ## 실행 순서
 
-### 1단계 — 문서 로드
+### 1단계 — 문서 및 템플릿 로드
 
-`classify_inbox` 툴을 호출해 INBOX 문서 목록을 가져온다.
+`classify_inbox` 툴을 호출해 INBOX 문서 목록과 카테고리별 템플릿을 가져온다.
 
 문서가 없으면 "INBOX가 비어 있습니다." 라고 알리고 중단한다.
 
@@ -54,19 +54,48 @@ M개 자동 분류 완료. (Inbox 유지: K개)
 
 ### 4단계 — 사용자 승인 처리
 
-- **Y 입력**: `apply_classification` 툴 호출 (category가 Inbox인 항목 제외)
+- **Y 입력**: 5단계(재작성)로 진행
 - **번호 입력**: 해당 문서의 카테고리를 사용자가 지정한 값으로 변경 후 재확인
 - **N 입력**: "분류를 취소했습니다." 알리고 중단
 
-### 5단계 — 완료 보고
+### 5단계 — 템플릿 기반 문서 재작성
+
+Inbox 유지 문서를 제외한 이동 대상 문서 각각에 대해:
+
+1. `full_content` (원본 문서 전체)와 해당 카테고리의 `templates` 값을 참조한다.
+2. **원본 문서의 내용과 정보를 최대한 보존**하면서 템플릿 구조에 맞게 재작성한다.
+   - 템플릿의 frontmatter 필드를 모두 포함한다 (원본에 값이 있으면 그 값 유지).
+   - 템플릿의 섹션 구조(헤딩, 항목 등)를 따른다.
+   - 원본 내용 중 템플릿 섹션에 맞지 않는 내용은 적절한 섹션에 배치하거나 별도 섹션으로 보존한다.
+3. 해당 카테고리의 템플릿이 없으면 원본 내용을 그대로 유지한다.
+
+### 6단계 — apply_classification 호출
+
+`apply_classification` 툴을 호출한다.
+- Inbox 유지 문서는 목록에서 제외한다.
+- 각 항목에 재작성된 `content`를 포함한다.
+
+```json
+{
+  "classifications": [
+    {
+      "path": "00_Inbox/앱_출시_체크리스트.md",
+      "category": "Projects",
+      "content": "재작성된 전체 문서 내용"
+    }
+  ]
+}
+```
+
+### 7단계 — 완료 보고
 
 ```
 ✅ N개 문서 이동 완료.
 커밋: abc12345 — chore: PARA classify N inbox items [SlotMachine]
 
 변경 내역:
-  Projects/ → 앱_출시_체크리스트.md
-  Resources/ → 독서노트_원칙.md
+  20_Projects/ → 앱_출시_체크리스트.md
+  40_Resources/ → 독서노트_원칙.md
 
 다음 단계: /slotmachine:save 로 원격 저장소에 push하세요.
 ```
