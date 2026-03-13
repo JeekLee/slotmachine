@@ -299,6 +299,94 @@ def recall(query: str, top_k: int = 5) -> dict:
     }
 
 
+@mcp.tool()
+def classify_inbox() -> dict:
+    """INBOX 폴더의 문서를 로드해 분류에 필요한 정보를 반환한다.
+
+    분류 판단 자체는 호스트 LLM(Claude Code)이 수행한다.
+    이 툴은 문서 목록과 내용을 제공하는 역할만 한다.
+
+    Returns:
+        inbox_path, 문서 목록(path/title/tags/excerpt), 총 문서 수
+    """
+    settings = get_settings()
+
+    from slotmachine.classifier.para import load_inbox
+    docs = load_inbox(settings.inbox_path, settings.vault_path)
+
+    return {
+        "inbox_path": str(settings.inbox_path),
+        "count": len(docs),
+        "documents": [
+            {
+                "path": doc.path,
+                "title": doc.title,
+                "tags": doc.tags,
+                "excerpt": doc.excerpt,
+            }
+            for doc in docs
+        ],
+    }
+
+
+@mcp.tool()
+def apply_classification(
+    classifications: list[dict],
+    commit_message: str = "",
+) -> dict:
+    """승인된 PARA 분류 결과에 따라 파일을 이동하고 git commit한다.
+
+    Args:
+        classifications: 이동할 문서 목록
+            각 항목: {"path": "INBOX/파일명.md", "category": "Projects"}
+            category 값: Projects / Areas / Resources / Archives / Inbox
+            (Inbox는 이동하지 않고 건너뜀)
+        commit_message: 커밋 메시지 (생략 시 자동 생성)
+    Returns:
+        이동된 수, 건너뛴 수, 커밋 해시, 오류 목록
+    """
+    settings = get_settings()
+
+    from slotmachine.classifier.para import apply_classification as _apply
+    from slotmachine.sync.git_manager import GitManager
+
+    result = _apply(settings.vault_path, classifications)
+
+    if result.moved == 0:
+        return {
+            "success": True,
+            "moved": 0,
+            "skipped": result.skipped,
+            "commit_hash": "",
+            "errors": result.errors,
+            "message": "이동할 파일이 없습니다.",
+        }
+
+    try:
+        gm = GitManager(settings.vault_path)
+        staged = gm.add_all()
+        msg = commit_message or (
+            f"chore: PARA classify {result.moved} inbox items [SlotMachine]"
+        )
+        commit_hash = gm.commit(msg)
+    except Exception as exc:
+        return {
+            "success": False,
+            "moved": result.moved,
+            "skipped": result.skipped,
+            "commit_hash": "",
+            "errors": result.errors + [f"git 오류: {exc}"],
+        }
+
+    return {
+        "success": True,
+        "moved": result.moved,
+        "skipped": result.skipped,
+        "commit_hash": commit_hash[:8],
+        "errors": result.errors,
+    }
+
+
 def main() -> None:
     """MCP 서버를 시작한다."""
     logging.basicConfig(level=logging.INFO)
