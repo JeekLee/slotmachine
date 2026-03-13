@@ -106,13 +106,13 @@ class GraphDB:
             session.run(
                 """
                 MERGE (d:Document {id: $id})
+                ON CREATE SET d.created_at = datetime()
                 SET d.title        = $title,
                     d.path         = $path,
                     d.content      = $content,
                     d.tags         = $tags,
                     d.para_category = $para_category,
                     d.updated_at   = datetime()
-                ON CREATE SET d.created_at = datetime()
                 """,
                 id=node_id,
                 title=doc.title,
