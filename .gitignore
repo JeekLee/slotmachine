@@ -1,0 +1,23 @@
+# 시크릿 — 절대 커밋 금지
+.env.local
+.env.staging
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로컬 개발용 MCP 등록 (절대경로 포함, 공유 불가)
+.mcp.json

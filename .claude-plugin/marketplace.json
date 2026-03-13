@@ -1,0 +1,28 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "jeeklee",
+  "owner": {
+    "name": "JeekLee"
+  },
+  "metadata": {
+    "description": "JeekLee's Claude Code plugins"
+  },
+  "plugins": [
+    {
+      "name": "slotmachine",
+      "description": "Obsidian vault를 GraphDB에 연동해 RAG 기능을 제공하는 Second Brain MCP 플러그인",
+      "version": "0.1.0",
+      "source": {
+        "source": "github",
+        "repo": "JeekLee/slotmachine"
+      },
+      "author": {
+        "name": "JeekLee"
+      },
+      "repository": "https://github.com/JeekLee/slotmachine",
+      "license": "MIT",
+      "keywords": ["obsidian", "rag", "graphdb", "second-brain", "neo4j"],
+      "category": "productivity"
+    }
+  ]
+}
