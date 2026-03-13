@@ -90,19 +90,19 @@ class Settings(BaseSettings):
 
     # --- Obsidian Vault ---
     vault_path: Path
-    inbox_folder: str = "INBOX"
+    inbox_folder: str = "00_Inbox"
 
     # --- PARA 폴더명 ---
-    para_projects: str = "Projects"
-    para_areas: str = "Areas"
-    para_resources: str = "Resources"
-    para_archives: str = "Archives"
+    para_projects: str = "20_Projects"
+    para_areas: str = "30_Areas"
+    para_resources: str = "40_Resources"
+    para_archives: str = "50_Archives"
 
     # --- PARA 템플릿 (vault 기준 상대경로, 생략 가능) ---
-    template_inbox: str = ""
-    template_projects: str = ""
-    template_areas: str = ""
-    template_resources: str = ""
+    template_inbox: str = "90_Settings/91_Vault/Templates/📖 Inbox.md"
+    template_projects: str = "90_Settings/91_Vault/Templates/📖 Project.md"
+    template_areas: str = "90_Settings/91_Vault/Templates/📖 Area.md"
+    template_resources: str = "90_Settings/91_Vault/Templates/📖 Resource.md"
     template_archives: str = ""
 
     # --- Git ---
