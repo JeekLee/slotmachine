@@ -75,13 +75,7 @@ commands/              # 플러그인으로 노출되는 사용자용 커맨드 
   inbox.md             # /slotmachine:inbox   — INBOX PARA 자동 분류
 
 .claude/
-  commands/            # 개발 컨텍스트에서만 로드되는 내부 커맨드
-    config.md          # (commands/ 와 동일, 개발 편의용 로컬 로드)
-    init.md
-    save.md
-    sync.md
-    recall.md
-    inbox.md
+  commands/            # 개발 컨텍스트에서만 로드되는 역할 커맨드
     developer.md       # /developer           — 개발자 역할 전환
     pm.md              # /pm                  — PM 역할 전환
     infra.md           # /infra               — 인프라 역할 전환
