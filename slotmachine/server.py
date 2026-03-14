@@ -485,6 +485,152 @@ def apply_classification(
     }
 
 
+@mcp.tool()
+def status_check() -> dict:
+    """SlotMachine 전체 컴포넌트 상태를 점검한다.
+
+    점검 항목:
+      - MCP 서버: 이 툴이 실행되면 정상
+      - 설정 파일: ~/.slotmachine/settings.env 존재 여부 및 주요 설정값
+      - Vault: 경로 존재 여부, 마크다운 파일 수
+      - Neo4j: 연결 가능 여부 및 노드 수
+      - Git: 원격 URL 설정 여부
+      - 임베딩: 프로바이더 및 API Key 설정 여부
+
+    Returns:
+        각 컴포넌트의 상태 딕셔너리
+    """
+    import shutil
+    from datetime import datetime, timezone
+
+    results: dict = {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "mcp_server": {"ok": True, "message": "MCP 서버 실행 중"},
+        "config": {},
+        "vault": {},
+        "neo4j": {},
+        "git": {},
+        "embedding": {},
+    }
+
+    # --- 설정 파일 ---
+    config_exists = HOME_CONFIG.exists()
+    if not config_exists:
+        results["config"] = {
+            "ok": False,
+            "message": f"설정 파일 없음: {HOME_CONFIG}",
+            "hint": "/slotmachine:config 를 실행하세요",
+        }
+        # 설정 없으면 이후 항목 점검 불가
+        for key in ("vault", "neo4j", "git", "embedding"):
+            results[key] = {"ok": False, "message": "설정 파일이 없어 점검 불가"}
+        return results
+
+    results["config"] = {"ok": True, "path": str(HOME_CONFIG)}
+
+    # --- Settings 로드 ---
+    try:
+        settings = get_settings()
+        settings_ok = True
+    except Exception as exc:
+        settings_ok = False
+        settings_load_error = str(exc)
+
+    if not settings_ok:
+        results["config"]["ok"] = False
+        results["config"]["message"] = f"설정 로드 실패: {settings_load_error}"
+        for key in ("vault", "neo4j", "git", "embedding"):
+            results[key] = {"ok": False, "message": "설정 로드 실패로 점검 불가"}
+        return results
+
+    # --- Vault ---
+    vault_path = settings.vault_path
+    vault_exists = vault_path.exists() and vault_path.is_dir()
+    if vault_exists:
+        md_count = sum(1 for _ in vault_path.rglob("*.md"))
+        inbox_count = sum(1 for _ in settings.inbox_path.rglob("*.md")) if settings.inbox_path.exists() else 0
+        results["vault"] = {
+            "ok": True,
+            "path": str(vault_path),
+            "markdown_files": md_count,
+            "inbox_files": inbox_count,
+        }
+    else:
+        results["vault"] = {
+            "ok": False,
+            "message": f"Vault 경로 없음: {vault_path}",
+        }
+
+    # --- Neo4j ---
+    try:
+        db = _make_db(settings)
+        db.verify_connectivity()
+        # 노드 수 조회
+        with db._driver.session() as session:
+            doc_count = session.run("MATCH (d:Document) RETURN count(d) AS n").single()["n"]
+        db.close()
+        results["neo4j"] = {
+            "ok": True,
+            "uri": settings.neo4j_uri,
+            "mode": settings.neo4j_mode,
+            "document_nodes": doc_count,
+        }
+    except Exception as exc:
+        docker_hint = (
+            " Docker가 실행 중인지, Neo4j 컨테이너가 있는지 확인하세요."
+            if settings.neo4j_mode == "docker"
+            else " Neo4j 서버가 실행 중인지 확인하세요."
+        )
+        results["neo4j"] = {
+            "ok": False,
+            "uri": settings.neo4j_uri,
+            "mode": settings.neo4j_mode,
+            "message": str(exc),
+            "hint": docker_hint,
+        }
+
+    # --- Git ---
+    git_url = settings.git_repo_url
+    if git_url:
+        git_status: dict = {"ok": True, "remote_url": git_url}
+        try:
+            import git as gitlib
+            repo = gitlib.Repo(settings.vault_path)
+            git_status["branch"] = repo.active_branch.name
+            git_status["dirty"] = repo.is_dirty(untracked_files=True)
+        except Exception as exc:
+            git_status["warning"] = str(exc)
+        results["git"] = git_status
+    else:
+        results["git"] = {
+            "ok": False,
+            "message": "git_repo_url 미설정 — save/sync 시 원격 push/pull 불가",
+            "hint": "/slotmachine:config 로 git_repo_url을 설정하세요",
+        }
+
+    # --- 임베딩 ---
+    provider = settings.embedding_provider
+    api_key_map = {
+        "jina": settings.jina_api_key,
+        "openai": settings.openai_api_key,
+        "voyage": settings.voyage_api_key,
+        "gemini": settings.gemini_api_key,
+        "ollama": None,  # API Key 불필요
+    }
+    api_key = api_key_map.get(str(provider))
+    key_ok = api_key is None or bool(api_key)  # ollama는 항상 True
+    results["embedding"] = {
+        "ok": key_ok,
+        "provider": str(provider),
+        "model": settings.embedding_model,
+        "api_key_set": "설정됨" if key_ok else "미설정",
+    }
+    if not key_ok:
+        results["embedding"]["hint"] = f"{str(provider).upper()}_API_KEY 를 설정하세요"
+
+    return results
+
+
 def main() -> None:
     """MCP 서버를 시작한다."""
     logging.basicConfig(level=logging.INFO)
