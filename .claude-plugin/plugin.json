@@ -5,7 +5,7 @@
   "author": {
     "name": "SlotMachine"
   },
-  "commands": "./.claude/commands/",
+  "commands": "./commands/",
   "mcpServers": {
     "slotmachine": {
       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-mcp.sh",

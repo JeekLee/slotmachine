@@ -66,13 +66,22 @@ SlotMachine은 Claude Code 플러그인으로 배포된다. 플러그인 관련 
 .claude-plugin/
   plugin.json          # 플러그인 매니페스트 (MCP 서버 등록, commands 경로)
 
+commands/              # 플러그인으로 노출되는 사용자용 커맨드 (plugin.json이 가리킴)
+  config.md            # /slotmachine:config  — 초기 설정
+  init.md              # /slotmachine:init    — DB 초기화 + vault 적재
+  save.md              # /slotmachine:save    — git push + GraphDB 증분 동기화
+  sync.md              # /slotmachine:sync    — git pull + GraphDB 증분 동기화
+  recall.md            # /slotmachine:recall  — RAG 검색
+  inbox.md             # /slotmachine:inbox   — INBOX PARA 자동 분류
+
 .claude/
-  commands/
-    config.md          # /slotmachine:config  — 초기 설정
-    init.md            # /slotmachine:init    — DB 초기화 + vault 적재
-    save.md            # /slotmachine:save    — git push + GraphDB 증분 동기화
-    sync.md            # /slotmachine:sync    — git pull + GraphDB 증분 동기화
-    recall.md          # /slotmachine:recall  — RAG 검색
+  commands/            # 개발 컨텍스트에서만 로드되는 내부 커맨드
+    config.md          # (commands/ 와 동일, 개발 편의용 로컬 로드)
+    init.md
+    save.md
+    sync.md
+    recall.md
+    inbox.md
     developer.md       # /developer           — 개발자 역할 전환
     pm.md              # /pm                  — PM 역할 전환
     infra.md           # /infra               — 인프라 역할 전환
