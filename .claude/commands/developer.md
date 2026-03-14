@@ -92,6 +92,20 @@ scripts/
 .mcp.json              # 로컬 개발용 MCP 등록 (절대 경로, git 제외 권장)
 ```
 
+### 플러그인 배포 커맨드
+
+```
+# 마켓플레이스 등록 (최초 1회)
+/plugin marketplace add JeekLee/slotmachine
+
+# 플러그인 설치
+/plugin install slotmachine@jeeklee
+```
+
+- `claude plugin install` (CLI) 은 존재하지 않음 — 슬래시 커맨드만 유효
+- `@jeeklee` 는 `.claude-plugin/marketplace.json`의 `name` 필드값
+- 로컬 테스트: `claude --plugin-dir ./slotmachine`
+
 ### 플러그인 커맨드 수정 시 규칙
 
 - `commands/*.md`의 `allowed-tools`에 필요한 MCP 툴을 명시한다

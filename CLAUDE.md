@@ -105,6 +105,27 @@ slotmachine/
 
 ---
 
+## 플러그인 배포
+
+### 설치 커맨드 (2단계)
+
+```
+/plugin marketplace add JeekLee/slotmachine
+/plugin install slotmachine@jeeklee
+```
+
+- `claude plugin install` (CLI) 은 존재하지 않음 — 슬래시 커맨드만 유효
+- `@jeeklee` 는 `.claude-plugin/marketplace.json`의 `name` 필드값
+
+### commands 디렉토리 구분
+
+| 경로 | 용도 |
+|------|------|
+| `commands/` | 플러그인으로 노출 (plugin.json이 가리킴) |
+| `.claude/commands/` | 개발용 포함 전체 (프로젝트 컨텍스트에서만 로드) |
+
+---
+
 ## 공통 원칙
 
 - 모든 Task는 반드시 Feature ID(예: F1-01)와 연결
