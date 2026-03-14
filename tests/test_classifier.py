@@ -7,6 +7,7 @@ from slotmachine.classifier.para import (
     DEFAULT_PARA_FOLDERS,
     apply_classification,
     get_vault_structure,
+    load_document_contents,
     load_inbox,
     load_template,
 )
@@ -271,22 +272,46 @@ class TestGetVaultStructure:
 
 
 # ---------------------------------------------------------------------------
-# load_inbox — full_content
+# load_inbox — full_content 지연 로드 확인
 # ---------------------------------------------------------------------------
 
 class TestLoadInboxFullContent:
-    def test_full_content_returned(self, vault, inbox_with_docs):
+    def test_full_content_is_empty(self, vault, inbox_with_docs):
+        """load_inbox는 full_content를 로드하지 않는다."""
         docs = load_inbox(vault / "INBOX", vault)
         for doc in docs:
-            assert doc.full_content  # 비어있지 않음
-            assert isinstance(doc.full_content, str)
+            assert doc.full_content == ""
 
-    def test_full_content_includes_frontmatter(self, vault: Path):
+
+# ---------------------------------------------------------------------------
+# load_document_contents
+# ---------------------------------------------------------------------------
+
+class TestLoadDocumentContents:
+    def test_returns_full_content(self, vault, inbox_with_docs):
+        paths = ["INBOX/프로젝트A.md", "INBOX/독서노트.md"]
+        contents = load_document_contents(vault, paths)
+        assert len(contents) == 2
+        assert "프로젝트A" in contents["INBOX/프로젝트A.md"]
+        assert "독서노트" in contents["INBOX/독서노트.md"]
+
+    def test_includes_frontmatter(self, vault: Path):
         inbox = vault / "INBOX"
+        inbox.mkdir(exist_ok=True)
         raw = "---\ntags: [test]\n---\n# 제목\n본문"
         (inbox / "fm_test.md").write_text(raw, encoding="utf-8")
-        docs = load_inbox(inbox, vault)
-        assert docs[0].full_content == raw
+        contents = load_document_contents(vault, ["INBOX/fm_test.md"])
+        assert contents["INBOX/fm_test.md"] == raw
+
+    def test_missing_file_excluded(self, vault: Path):
+        contents = load_document_contents(vault, ["INBOX/없는파일.md"])
+        assert contents == {}
+
+    def test_partial_failure_returns_successful_only(self, vault, inbox_with_docs):
+        paths = ["INBOX/프로젝트A.md", "INBOX/없는파일.md"]
+        contents = load_document_contents(vault, paths)
+        assert len(contents) == 1
+        assert "INBOX/프로젝트A.md" in contents
 
 
 # ---------------------------------------------------------------------------

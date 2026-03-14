@@ -1,6 +1,6 @@
 ---
 description: INBOX 문서를 PARA 자동 분류하고 사용자 승인 후 파일 이동
-allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__apply_classification
+allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__get_document_contents, mcp__slotmachine__get_templates, mcp__slotmachine__apply_classification
 ---
 
 # /slotmachine:inbox — INBOX PARA 자동 분류
@@ -12,8 +12,7 @@ allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__apply_classif
 `classify_inbox` 툴을 호출한다.
 
 반환값:
-- `documents`: INBOX 문서 목록 (path / title / tags / excerpt / full_content)
-- `templates`: 카테고리별 템플릿 내용
+- `documents`: INBOX 문서 목록 (path / title / tags / excerpt)
 - `vault_structure`: 카테고리별 하위 디렉토리 및 기존 문서 제목
 
 문서가 없으면 "INBOX가 비어 있습니다." 라고 알리고 중단한다.
@@ -40,9 +39,9 @@ INBOX에 N개의 문서가 있습니다.
 - **번호 입력** (예: `1 3 5`): 해당 번호 문서만 분류 진행
 - **N**: 중단
 
-### 3단계 — PARA 분류 및 배치 위치 결정
+### 3단계 — PARA 분류 및 배치 위치 결정 (excerpt 기반)
 
-선택된 문서 각각에 대해 다음을 판단한다.
+선택된 문서 각각에 대해 excerpt와 메타데이터만으로 다음을 판단한다.
 
 #### 3-1. PARA 카테고리 결정
 
@@ -84,18 +83,34 @@ N개 문서 분류 결과:
 - **번호 입력**: 해당 문서의 카테고리/위치를 사용자가 수정 후 재확인
 - **N**: 취소
 
-### 5단계 — 템플릿 기반 문서 재작성
+### 5단계 — 필요한 템플릿 로드
 
-이동 대상 문서(Inbox 유지 제외) 각각에 대해:
+이동 대상 문서(Inbox 유지 제외)에서 사용된 카테고리를 중복 없이 추출한다.
 
-1. `full_content`(원본)와 해당 카테고리의 `templates` 값을 참조한다.
-2. 원본 내용을 최대한 보존하면서 템플릿 구조로 재작성한다.
-   - 템플릿 frontmatter 필드 포함 (원본 값 우선)
-   - 템플릿 섹션 구조 준수
-   - 3-3에서 파악한 관련 문서를 적절한 위치에 `[[문서명]]`으로 연결
-3. 템플릿이 없는 카테고리(Archives 등)는 원본 그대로 유지 (content 생략).
+`get_templates(categories)` 를 한 번 호출한다.
 
-### 6단계 — apply_classification 호출
+예: Projects, Resources 두 카테고리가 사용되면 → `get_templates(["Projects", "Resources"])`
+
+템플릿이 없는 카테고리(Archives 등)는 원본 그대로 유지한다.
+
+### 6단계 — 배치 단위 문서 재작성
+
+이동 대상 문서를 **5개 단위 배치**로 나눠 처리한다.
+
+각 배치마다:
+
+1. `get_document_contents(batch_paths)` 를 호출해 해당 배치 문서의 full_content를 가져온다.
+2. 각 문서에 대해:
+   - `full_content`(원본)와 해당 카테고리의 템플릿을 참조한다.
+   - 원본 내용을 최대한 보존하면서 템플릿 구조로 재작성한다.
+     - 템플릿 frontmatter 필드 포함 (원본 값 우선)
+     - 템플릿 섹션 구조 준수
+     - 3-3에서 파악한 관련 문서를 적절한 위치에 `[[문서명]]`으로 연결
+   - 템플릿이 없는 카테고리(Archives 등)는 content 생략 (원본 유지).
+
+모든 배치 처리가 완료되면 7단계로 진행한다.
+
+### 7단계 — apply_classification 호출
 
 ```json
 {
@@ -116,7 +131,7 @@ N개 문서 분류 결과:
 }
 ```
 
-### 7단계 — 완료 보고
+### 8단계 — 완료 보고
 
 ```
 ✅ N개 문서 이동 완료.

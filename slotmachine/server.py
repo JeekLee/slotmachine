@@ -331,26 +331,20 @@ def recall(query: str, top_k: int = 5) -> dict:
 
 @mcp.tool()
 def classify_inbox() -> dict:
-    """INBOX 폴더의 문서를 로드해 분류 및 재작성에 필요한 정보를 반환한다.
+    """INBOX 폴더의 문서를 로드해 분류에 필요한 정보를 반환한다.
 
-    분류 판단과 템플릿 기반 문서 재작성은 호스트 LLM(Claude Code)이 수행한다.
-    이 툴은 문서 목록, 전체 내용, 카테고리별 템플릿을 제공하는 역할만 한다.
+    분류 판단은 호스트 LLM(Claude Code)이 excerpt 기반으로 수행한다.
+    full_content와 templates는 이 툴에서 반환하지 않는다.
+    - 문서 전체 내용: get_document_contents() 로 별도 요청
+    - 카테고리 템플릿: get_templates() 로 별도 요청
 
     Returns:
-        inbox_path, 문서 목록(path/title/tags/excerpt/full_content),
-        카테고리별 템플릿 내용(templates), 총 문서 수
+        inbox_path, 문서 목록(path/title/tags/excerpt), vault_structure, 총 문서 수
     """
     settings = get_settings()
 
-    from slotmachine.classifier.para import load_inbox, load_template, get_vault_structure
+    from slotmachine.classifier.para import load_inbox, get_vault_structure
     docs = load_inbox(settings.inbox_path, settings.vault_path)
-
-    # 카테고리별 템플릿 내용 로드
-    templates = {
-        category: load_template(settings.vault_path, tmpl_rel)
-        for category, tmpl_rel in settings.template_map.items()
-        if tmpl_rel
-    }
 
     # vault 하위 디렉토리 구조 + 기존 문서 목록
     vault_structure = get_vault_structure(settings.vault_path, settings.para_folder_map)
@@ -364,12 +358,63 @@ def classify_inbox() -> dict:
                 "title": doc.title,
                 "tags": doc.tags,
                 "excerpt": doc.excerpt,
-                "full_content": doc.full_content,
             }
             for doc in docs
         ],
-        "templates": templates,
         "vault_structure": vault_structure,
+    }
+
+
+@mcp.tool()
+def get_document_contents(paths: list[str]) -> dict:
+    """지정한 문서들의 전체 내용을 반환한다.
+
+    분류 승인 후 재작성 단계에서 필요한 문서만 선택적으로 로드한다.
+    배치 단위(예: 5개씩)로 호출해 컨텍스트 토큰을 분산할 수 있다.
+
+    Args:
+        paths: vault 기준 상대경로 목록 (예: ["INBOX/문서A.md", "INBOX/문서B.md"])
+    Returns:
+        {path: full_content} 딕셔너리 및 로드 성공/실패 수
+    """
+    settings = get_settings()
+
+    from slotmachine.classifier.para import load_document_contents
+    contents = load_document_contents(settings.vault_path, paths)
+
+    return {
+        "loaded": len(contents),
+        "failed": len(paths) - len(contents),
+        "contents": contents,
+    }
+
+
+@mcp.tool()
+def get_templates(categories: list[str]) -> dict:
+    """지정한 카테고리의 템플릿 내용을 반환한다.
+
+    분류 승인 후 실제 사용된 카테고리의 템플릿만 선택적으로 로드한다.
+
+    Args:
+        categories: 템플릿이 필요한 카테고리 목록 (예: ["Projects", "Resources"])
+    Returns:
+        {category: template_content} 딕셔너리. 템플릿이 없는 카테고리는 포함되지 않는다.
+    """
+    settings = get_settings()
+
+    from slotmachine.classifier.para import load_template
+    templates = {}
+    for category in categories:
+        tmpl_rel = settings.template_map.get(category, "")
+        if tmpl_rel:
+            content = load_template(settings.vault_path, tmpl_rel)
+            if content:
+                templates[category] = content
+
+    return {
+        "templates": templates,
+        "loaded": len(templates),
+        "missing": [c for c in categories if c not in templates],
     }
 
 

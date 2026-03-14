@@ -48,6 +48,10 @@ class ClassifyResult:
 def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
     """INBOX 폴더의 .md 파일을 로드해 반환한다.
 
+    분류 판단에 필요한 메타데이터와 excerpt만 로드한다.
+    full_content는 빈 문자열로 설정되며, 재작성 단계에서
+    load_document_contents()를 통해 별도로 로드해야 한다.
+
     Args:
         inbox_path: INBOX 폴더 절대 경로
         vault_path: vault 루트 절대 경로 (상대경로 계산용)
@@ -67,7 +71,6 @@ def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
             continue
         try:
             parsed = parse_document(md_file)
-            full_content = md_file.read_text(encoding="utf-8")
             excerpt = parsed.raw_content[:_EXCERPT_MAX].strip()
             rel_path = md_file.relative_to(vault_path)
             docs.append(InboxDocument(
@@ -75,12 +78,36 @@ def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
                 title=parsed.title,
                 tags=parsed.tags,
                 excerpt=excerpt,
-                full_content=full_content,
+                full_content="",
             ))
         except Exception as exc:
             logger.warning("파싱 실패 — %s: %s", md_file.name, exc)
 
     return docs
+
+
+def load_document_contents(
+    vault_path: Path,
+    rel_paths: list[str],
+) -> dict[str, str]:
+    """지정된 경로의 문서 전체 내용을 반환한다.
+
+    분류 승인 후 재작성 단계에서 필요한 문서만 선택적으로 로드한다.
+
+    Args:
+        vault_path: vault 루트 절대 경로
+        rel_paths: vault 기준 상대경로 목록
+    Returns:
+        {상대경로: 전체 내용} 딕셔너리. 읽기 실패한 파일은 포함되지 않는다.
+    """
+    result: dict[str, str] = {}
+    for rel_path in rel_paths:
+        full_path = vault_path / rel_path
+        try:
+            result[rel_path] = full_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning("파일 읽기 실패 — %s: %s", rel_path, exc)
+    return result
 
 
 def load_template(vault_path: Path, template_rel: str) -> str:
