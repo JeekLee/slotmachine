@@ -37,28 +37,15 @@ INBOX 문서 자동 분류(PARA), vault 동기화, 개인 지식베이스 검색
 
 ## 설치
 
-### 1. 플러그인 등록
-
-Claude Code에 MCP 플러그인으로 등록한다.
+### 1. 플러그인 설치
 
 ```bash
-claude mcp add --scope user slotmachine \
-  /path/to/slotmachine/scripts/bootstrap-mcp.sh
-```
-
-또는 `claude_desktop_config.json` / Claude Code 설정에 직접 추가:
-
-```json
-{
-  "mcpServers": {
-    "slotmachine": {
-      "command": "/path/to/slotmachine/scripts/bootstrap-mcp.sh"
-    }
-  }
-}
+claude plugin install /path/to/slotmachine
 ```
 
 MCP 서버 첫 실행 시 `.venv`를 자동으로 생성하고 의존성을 설치한다.
+
+> **로컬 개발 시**: `claude --plugin-dir ./slotmachine` 으로 바로 테스트할 수 있다.
 
 ### 2. 초기 설정
 
