@@ -13,6 +13,10 @@ fastmcp를 사용해 툴을 MCP 프로토콜로 노출한다.
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastmcp import FastMCP
@@ -24,7 +28,93 @@ from slotmachine.sync.sync_history import SyncHistory
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("SlotMachine 🎰")
+
+def _find_docker() -> str | None:
+    """docker 실행 파일 경로를 반환한다. 없으면 None."""
+    candidates = [
+        "docker",
+        "/usr/local/bin/docker",
+        "/usr/bin/docker",
+        r"C:\Program Files\Docker\Docker\resources\bin\docker",
+        r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+    ]
+    # LOCALAPPDATA, HOME 기반 경로 추가
+    import os
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    home = os.environ.get("HOME", "")
+    if local_app:
+        candidates.append(rf"{local_app}\Programs\Docker\Docker\resources\bin\docker.exe")
+    if home:
+        candidates.append(f"{home}/.docker/bin/docker")
+
+    for c in candidates:
+        found = shutil.which(c) or (Path(c).exists() and c)
+        if found:
+            return str(found)
+    return None
+
+
+def _ensure_neo4j_docker(plugin_root: Path) -> None:
+    """NEO4J_MODE=docker 일 때 slotmachine-neo4j 컨테이너를 기동한다."""
+    config_path = HOME_CONFIG
+    if not config_path.exists():
+        return
+
+    neo4j_mode = ""
+    for line in config_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("NEO4J_MODE="):
+            neo4j_mode = line.split("=", 1)[1].strip()
+            break
+
+    if neo4j_mode != "docker":
+        return
+
+    docker = _find_docker()
+    if not docker:
+        logger.warning("[slotmachine] Docker를 찾을 수 없습니다. Neo4j 컨테이너를 시작하지 않습니다.")
+        return
+
+    try:
+        result = subprocess.run(
+            [docker, "inspect", "--format", "{{.State.Status}}", "slotmachine-neo4j"],
+            capture_output=True, text=True,
+        )
+        state = result.stdout.strip() if result.returncode == 0 else "missing"
+    except Exception:
+        state = "missing"
+
+    if state == "running":
+        return
+
+    if state != "missing":
+        try:
+            subprocess.run([docker, "rm", "-f", "slotmachine-neo4j"], capture_output=True)
+        except Exception:
+            pass
+
+    logger.info("[slotmachine] Neo4j 컨테이너 시작 중 (state: %s)...", state)
+    try:
+        subprocess.run(
+            [docker, "compose", "up", "-d"],
+            cwd=str(plugin_root),
+            env={**__import__("os").environ, "NEO4J_PASSWORD": "slotmachine"},
+            check=True,
+        )
+        logger.info("[slotmachine] Neo4j 컨테이너 시작 완료.")
+    except Exception as exc:
+        logger.warning("[slotmachine] Neo4j 컨테이너 시작 실패: %s", exc)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastMCP):
+    """서버 시작 시 Docker Neo4j를 자동 기동한다."""
+    # 이 파일 기준으로 plugin root 탐색 (설치 경로 및 개발 경로 모두 대응)
+    plugin_root = Path(__file__).parent.parent
+    _ensure_neo4j_docker(plugin_root)
+    yield
+
+
+mcp = FastMCP("SlotMachine 🎰", lifespan=_lifespan)
 
 
 def _make_db(settings: Settings) -> GraphDB:
