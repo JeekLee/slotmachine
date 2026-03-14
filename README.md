@@ -39,6 +39,14 @@ INBOX 문서 자동 분류(PARA), vault 동기화, 개인 지식베이스 검색
 
 ### 1. 플러그인 설치
 
+**마켓플레이스를 통한 설치 (권장)**:
+
+```bash
+/plugin marketplace add JeekLee/slotmachine
+```
+
+**GitHub에서 직접 설치**:
+
 ```bash
 claude plugin install https://github.com/JeekLee/slotmachine
 ```
