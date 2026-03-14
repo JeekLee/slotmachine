@@ -40,7 +40,7 @@ INBOX 문서 자동 분류(PARA), vault 동기화, 개인 지식베이스 검색
 ### 1. 플러그인 설치
 
 ```bash
-claude plugin install /path/to/slotmachine
+claude plugin install https://github.com/JeekLee/slotmachine
 ```
 
 MCP 서버 첫 실행 시 `.venv`를 자동으로 생성하고 의존성을 설치한다.
