@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "slotmachine": {
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "python", "-m", "slotmachine.server"],
+      "env": {
+        "SLOTMACHINE_CONFIG": "${HOME}/.slotmachine/settings.env"
+      },
+      "description": "SlotMachine MCP server — Obsidian vault GraphDB sync & RAG"
+    }
+  }
+}

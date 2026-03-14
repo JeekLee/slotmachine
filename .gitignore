@@ -19,5 +19,5 @@ dist/
 .DS_Store
 Thumbs.db
 
-# 로컬 개발용 MCP 등록 (절대경로 포함, 공유 불가)
-.mcp.json
+# 로컬 개발용 MCP 오버라이드 (절대경로 포함, 공유 불가)
+.mcp.local.json
