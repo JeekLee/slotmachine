@@ -43,23 +43,38 @@ NEO4J_MODE=$(grep '^NEO4J_MODE=' "$SLOTMACHINE_CONFIG" 2>/dev/null \
   | cut -d= -f2 | tr -d '[:space:]' || echo "external")
 
 if [[ "$NEO4J_MODE" == "docker" ]]; then
-  if ! command -v docker &>/dev/null; then
+  # Claude Code는 제한된 PATH로 실행되므로 Docker 경로를 직접 탐색한다
+  DOCKER_CMD=""
+  for candidate in \
+    "docker" \
+    "/usr/local/bin/docker" \
+    "/usr/bin/docker" \
+    "/c/Program Files/Docker/Docker/resources/bin/docker" \
+    "$LOCALAPPDATA/Programs/Docker/Docker/resources/bin/docker" \
+    "$HOME/.docker/bin/docker"; do
+    if command -v "$candidate" &>/dev/null 2>&1 || [[ -x "$candidate" ]]; then
+      DOCKER_CMD="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$DOCKER_CMD" ]]; then
     echo "[slotmachine] WARNING: NEO4J_MODE=docker 이지만 Docker를 찾을 수 없습니다." >&2
     echo "[slotmachine] Docker를 설치하거나 외부 Neo4j URI를 설정하세요." >&2
   else
     cd "$PLUGIN_ROOT"
-    CONTAINER_STATE=$(docker inspect --format '{{.State.Status}}' slotmachine-neo4j 2>/dev/null || echo "missing")
+    CONTAINER_STATE=$("$DOCKER_CMD" inspect --format '{{.State.Status}}' slotmachine-neo4j 2>/dev/null || echo "missing")
     if [[ "$CONTAINER_STATE" == "running" ]]; then
       : # 이미 실행 중
     elif [[ "$CONTAINER_STATE" == "missing" ]]; then
       echo "[slotmachine] Neo4j 컨테이너 생성 및 시작 중..." >&2
-      NEO4J_PASSWORD=slotmachine docker compose up -d 2>/dev/null \
+      NEO4J_PASSWORD=slotmachine "$DOCKER_CMD" compose up -d \
         || echo "[slotmachine] WARNING: Neo4j 컨테이너 시작에 실패했습니다." >&2
     else
       # exited / restarting 등 — 강제 재생성
       echo "[slotmachine] Neo4j 컨테이너 재생성 중 (이전 상태: $CONTAINER_STATE)..." >&2
-      docker rm -f slotmachine-neo4j 2>/dev/null || true
-      NEO4J_PASSWORD=slotmachine docker compose up -d 2>/dev/null \
+      "$DOCKER_CMD" rm -f slotmachine-neo4j 2>/dev/null || true
+      NEO4J_PASSWORD=slotmachine "$DOCKER_CMD" compose up -d \
         || echo "[slotmachine] WARNING: Neo4j 컨테이너 시작에 실패했습니다." >&2
     fi
   fi
