@@ -94,13 +94,17 @@ def _ensure_neo4j_docker(plugin_root: Path) -> None:
 
     logger.info("[slotmachine] Neo4j 컨테이너 시작 중 (state: %s)...", state)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [docker, "compose", "up", "-d"],
             cwd=str(plugin_root),
             env={**__import__("os").environ, "NEO4J_PASSWORD": "slotmachine"},
+            capture_output=True,
+            text=True,
             check=True,
         )
         logger.info("[slotmachine] Neo4j 컨테이너 시작 완료.")
+    except subprocess.CalledProcessError as exc:
+        logger.warning("[slotmachine] Neo4j 컨테이너 시작 실패 (exit %s): %s", exc.returncode, exc.stderr)
     except Exception as exc:
         logger.warning("[slotmachine] Neo4j 컨테이너 시작 실패: %s", exc)
 
