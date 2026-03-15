@@ -25,8 +25,8 @@ INBOX 문서 자동 분류(PARA), vault 동기화, 개인 지식베이스 검색
 - [Claude Code](https://claude.ai/code) CLI
 - Python 3.11+
 - [`uv`](https://github.com/astral-sh/uv) (또는 `pip`)
-- Neo4j — 아래 중 하나:
-  - **Docker** (권장, 자동 관리): `docker compose up -d`
+- Neo4j (직접 실행 필요) — 아래 중 하나:
+  - **Docker**: `docker run -d --name slotmachine-neo4j -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/your-password neo4j:5`
   - **로컬 설치**: [Neo4j Desktop](https://neo4j.com/download/)
   - **클라우드**: [Neo4j Aura](https://neo4j.com/cloud/platform/aura-graph-database/)
 - 임베딩 API 키 — 아래 중 하나:
@@ -60,10 +60,10 @@ Claude Code에서 실행:
 
 필수 입력값:
 - `vault_path`: Obsidian vault 절대 경로
-- `neo4j_password`: Neo4j 비밀번호 (Docker 자동 관리 모드는 생략 가능)
+- `neo4j_password`: Neo4j 비밀번호
 - 임베딩 프로바이더 API 키
 
-> **Docker 자동 관리 모드**: `neo4j_password`를 생략하면 `docker compose`로 Neo4j가 자동 실행된다 (Docker 필요).
+> Neo4j는 `/slotmachine:config` 실행 전에 직접 기동해두어야 한다.
 
 ### 3. 스키마 초기화 및 vault 적재
 
