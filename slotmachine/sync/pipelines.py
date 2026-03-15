@@ -101,6 +101,8 @@ def save(
         if sync_history:
             sync_history.record("save", result.sync_result, commit_hash=result.commit_hash)
 
+        db.upsert_sync_meta(result.commit_hash)
+
     except git.GitCommandError as exc:
         result.error = f"Git 오류: {exc}"
         logger.error("Save 실패 (Git): %s", exc)
@@ -158,6 +160,8 @@ def live_sync(
 
         if sync_history:
             sync_history.record("sync", result.sync_result)
+
+        db.upsert_sync_meta(result.new_head)
 
     except git.GitCommandError as exc:
         result.error = f"Git 오류: {exc}"

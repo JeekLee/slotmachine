@@ -272,3 +272,46 @@ def test_document_exists_false():
     mock_session.run.return_value.single.return_value = None
 
     assert db.document_exists(Path("/vault/ghost.md")) is False
+
+
+# ---------------------------------------------------------------------------
+# upsert_sync_meta / get_sync_meta
+# ---------------------------------------------------------------------------
+
+def test_upsert_sync_meta_runs_merge():
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    db.upsert_sync_meta("abc123")
+
+    query = mock_session.run.call_args_list[0][0][0]
+    assert "MERGE (m:SyncMeta" in query
+    assert mock_session.run.call_args_list[0][1]["commit_hash"] == "abc123"
+
+
+def test_get_sync_meta_returns_dict_when_found():
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    meta = {"id": "singleton", "last_commit": "abc123"}
+    mock_record = MagicMock()
+    mock_record.__getitem__ = MagicMock(return_value=meta)
+    mock_session.run.return_value.single.return_value = mock_record
+
+    result = db.get_sync_meta()
+    assert result == meta
+
+
+def test_get_sync_meta_returns_none_when_not_initialized():
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    mock_session.run.return_value.single.return_value = None
+
+    assert db.get_sync_meta() is None

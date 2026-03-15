@@ -1,7 +1,7 @@
 {
   "name": "slotmachine",
   "description": "Obsidian vault를 GraphDB에 연동해 RAG 기능을 제공하는 Second Brain MCP 플러그인. INBOX 문서를 슬롯머신 레버 하나로 분류·연결·정리한다.",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "author": {
     "name": "SlotMachine"
   },
@@ -14,6 +14,17 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/prewarm.sh\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory \"${CLAUDE_PLUGIN_ROOT}\" python \"${CLAUDE_PLUGIN_ROOT}/scripts/auto_sync.py\""
           }
         ]
       }

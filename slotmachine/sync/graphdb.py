@@ -267,6 +267,41 @@ class GraphDB:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [{"score": s, **doc} for s, doc in scored[:top_k]]
 
+    # ------------------------------------------------------------------
+    # Sync 메타데이터
+    # ------------------------------------------------------------------
+
+    def upsert_sync_meta(self, commit_hash: str) -> None:
+        """마지막으로 GraphDB에 반영된 커밋 해시를 Neo4j에 기록한다.
+
+        싱글턴 SyncMeta 노드에 MERGE하므로 항상 최신 값만 유지된다.
+
+        Args:
+            commit_hash: 반영 완료된 commit hash
+        """
+        with self._driver.session() as session:
+            session.run(
+                """
+                MERGE (m:SyncMeta {id: 'singleton'})
+                SET m.last_commit = $commit_hash,
+                    m.synced_at   = datetime()
+                """,
+                commit_hash=commit_hash,
+            )
+
+    def get_sync_meta(self) -> dict | None:
+        """Neo4j에 저장된 sync 메타데이터를 반환한다.
+
+        Returns:
+            {last_commit, synced_at, id} dict, 초기화 전이면 None
+        """
+        with self._driver.session() as session:
+            result = session.run(
+                "MATCH (m:SyncMeta {id: 'singleton'}) RETURN m"
+            )
+            record = result.single()
+            return dict(record["m"]) if record else None
+
     def search_by_keyword(self, query: str, top_k: int = 5) -> list[dict]:
         """제목 또는 내용에서 키워드로 Document를 검색한다.
 

@@ -1,6 +1,6 @@
 [project]
 name = "slotmachine"
-version = "0.3.6"
+version = "0.3.7"
 description = "MCP-based ClaudeCode plugin — Obsidian vault를 GraphDB에 연동하는 Second Brain"
 requires-python = ">=3.11"
 dependencies = [
