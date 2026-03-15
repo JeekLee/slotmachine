@@ -105,7 +105,7 @@ class TestRetrieve:
 
         retrieve("쿼리", db, embedding_provider=None)
 
-        db.search_by_keyword.assert_called_once_with("쿼리", top_k=5)
+        db.search_by_keyword.assert_called_once_with("쿼리", top_k=5, para_filter=None)
         db.search_similar_by_embedding.assert_not_called()
 
     def test_top_k_forwarded_to_vector_search(self):
@@ -121,7 +121,7 @@ class TestRetrieve:
     def test_top_k_forwarded_to_keyword_search(self):
         db = _make_db()
         retrieve("q", db, embedding_provider=None, top_k=3)
-        db.search_by_keyword.assert_called_once_with("q", top_k=3)
+        db.search_by_keyword.assert_called_once_with("q", top_k=3, para_filter=None)
 
     def test_returns_retrieved_doc_instances(self):
         db = _make_db([_row(title="My Note")])

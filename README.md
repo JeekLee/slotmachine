@@ -12,9 +12,11 @@ INBOX 문서 자동 분류(PARA), vault 동기화, 개인 지식베이스 검색
 | 기능 | 커맨드 | 설명 |
 |------|--------|------|
 | INBOX 자동 분류 | `/slotmachine:inbox` | INBOX 문서를 PARA로 분류·재작성·이동 |
+| 위키링크 자동 제안 | `/slotmachine:link` | 문서 관련 문서 탐색 + 위키링크 삽입 |
 | vault 저장 | `/slotmachine:save` | git commit + push + GraphDB 증분 업데이트 |
 | vault 동기화 | `/slotmachine:sync` | git pull + GraphDB 증분 업데이트 |
 | 지식베이스 검색 | `/slotmachine:recall` | vault 문서 RAG 검색 |
+| 상태 점검 | `/slotmachine:status` | MCP·Neo4j·vault·임베딩 전체 상태 확인 |
 | 초기 설정 | `/slotmachine:config` | vault 경로, Neo4j, 임베딩 프로바이더 설정 |
 | 스키마 초기화 | `/slotmachine:init` | Neo4j 스키마 생성 + vault 전체 적재 |
 
@@ -119,13 +121,39 @@ INBOX에 5개의 문서가 있습니다.
 /slotmachine:sync   # 원격 변경사항 pull + GraphDB 반영
 ```
 
+### 위키링크 자동 제안 🔗
+
+```
+/slotmachine:link
+```
+
+대상 문서와 관련된 vault 문서를 벡터 유사도 + 그래프 근접성으로 탐색하고, 승인된 문서를 `[[위키링크]]` 형태로 삽입한다.
+
+```
+"my_project.md"의 관련 문서 후보 3개:
+
+#   제목                       카테고리    점수
+─────────────────────────────────────────────
+1   클린코드_요약               Resources  0.87
+2   아키텍처_패턴_노트           Resources  0.81
+3   2024_리팩토링_프로젝트       Projects   0.76
+
+삽입할 항목을 선택하세요.
+[Enter: 전체 삽입 / 번호: 선택 삽입 / N: 취소]
+
+> 1 2
+
+✅ 2개 위키링크 삽입 완료.
+커밋: a1b2c3d4 — chore: add 2 wiki links to my_project [SlotMachine]
+```
+
 ### 개인 지식베이스 검색
 
 ```
-/slotmachine:recall
+/slotmachine:recall 검색할 질문이나 키워드
 ```
 
-vault 문서를 RAG로 검색해 관련 내용과 출처 링크를 제공한다.
+vault 문서를 RAG로 검색해 관련 내용과 출처 링크를 제공한다. `Projects` 카테고리만 검색하려면 `para_filter`를 지정할 수 있다.
 
 ---
 
@@ -168,12 +196,19 @@ Claude Code (MCP Plugin)
   ├── get_document_contents — 배치 단위 full_content 로드
   ├── get_templates         — 필요한 카테고리 템플릿만 로드
   ├── apply_classification  — 파일 이동 + git commit
+  ├── suggest_links         — 관련 문서 탐색 (벡터 + 그래프 근접성)
+  ├── apply_links           — 위키링크 삽입 + git commit
   ├── save_vault            — git push + GraphDB 증분 업데이트
   ├── sync_vault            — git pull + GraphDB 증분 업데이트
-  └── recall                — 벡터/키워드 검색 → RAG 컨텍스트 반환
+  ├── recall                — 벡터/키워드 검색 → RAG 컨텍스트 반환
+  └── status_check          — 전체 컴포넌트 상태 점검
 
 GraphDB (Neo4j)
   └── Document 노드 — 임베딩, 태그, 위키링크, PARA 카테고리
+        ├── LINKS_TO   (위키링크)
+        ├── TAGGED_WITH
+        ├── IN_FOLDER
+        └── RELATED_TO (유사도 기반, suggest_links가 자동 생성)
 ```
 
 설정 파일: `~/.slotmachine/settings.env`

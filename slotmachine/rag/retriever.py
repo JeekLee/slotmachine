@@ -43,6 +43,7 @@ def retrieve(
     *,
     embedding_provider: BaseEmbeddingProvider | None = None,
     top_k: int = 5,
+    para_filter: list[str] | None = None,
 ) -> list[RetrievedDoc]:
     """쿼리와 관련된 문서를 GraphDB에서 검색한다.
 
@@ -54,16 +55,20 @@ def retrieve(
         db: GraphDB 인스턴스
         embedding_provider: 임베딩 프로바이더 (None이면 키워드 검색)
         top_k: 반환할 최대 문서 수
+        para_filter: 검색 범위를 제한할 PARA 카테고리 목록
+                     예: ["Projects", "Areas"] — None이면 전체 카테고리 검색
     Returns:
         관련도 순 RetrievedDoc 목록
     """
     if embedding_provider:
         logger.debug("벡터 유사도 검색: %s (top_k=%d)", query, top_k)
         query_embedding = embedding_provider.embed_one(query)
-        rows = db.search_similar_by_embedding(query_embedding, top_k=top_k)
+        rows = db.search_similar_by_embedding(
+            query_embedding, top_k=top_k, para_filter=para_filter
+        )
     else:
         logger.debug("키워드 검색 (임베딩 프로바이더 없음): %s", query)
-        rows = db.search_by_keyword(query, top_k=top_k)
+        rows = db.search_by_keyword(query, top_k=top_k, para_filter=para_filter)
 
     return [
         RetrievedDoc(

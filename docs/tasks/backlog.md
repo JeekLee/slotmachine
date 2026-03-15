@@ -25,21 +25,22 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 - [ ] [F3-06] 파일 이동 + 자동 git commit | developer
 - [ ] [F3-07] 확신도 낮은 문서 별도 처리 플로우 | developer
 
-## Phase 4 — Knowledge Graph (F4)
+## Phase 4 — Knowledge Graph (F4) ✅ Sprint 5 완료
 
-- [ ] [F4-01] 벡터 유사도 검색 모듈 | developer
-- [ ] [F4-02] 그래프 근접성 계산 알고리즘 | developer
-- [ ] [F4-03] 관련도 임계값 기반 후보 필터링 | developer
-- [ ] [F4-04] 위키링크 삽입 위치 추천 로직 | developer
-- [ ] [F4-05] 중복 링크 방지 및 양방향 링크 처리 | developer
+- [x] [F4-01] 벡터 유사도 검색 모듈 | developer
+- [x] [F4-02] 그래프 근접성 계산 알고리즘 | developer
+- [x] [F4-03] 관련도 임계값 기반 후보 필터링 | developer
+- [x] [F4-04] `suggest_links` MCP 툴 + 위키링크 삽입 위치 추천 | developer
+- [x] [F4-05] 중복 링크 방지 및 양방향 링크 처리 | developer
 
-## Phase 5 — Second Brain RAG (F5)
+## Phase 5 — Second Brain RAG (F5) ✅ Sprint 6 완료
 
-- [ ] [F5-01] RAG 질의 파이프라인 구현 | developer
-- [ ] [F5-02] Top-K 문서 검색 및 컨텍스트 구성 | developer
-- [ ] [F5-03] 토큰 제한 내 컨텍스트 최적화 | developer
-- [ ] [F5-04] 출처 링크 포맷 (Obsidian URI) 구현 | developer
-- [ ] [F5-05] "참조 없음" 케이스 처리 | developer
+- [x] [F5-01] RAG 질의 파이프라인 구현 | developer
+- [x] [F5-02] Top-K 문서 검색 및 컨텍스트 구성 | developer
+- [x] [F5-03] 토큰 제한 내 컨텍스트 최적화 (top_k) | developer
+- [x] [F5-04] 출처 링크 포맷 (Obsidian URI) 구현 | developer
+- [x] [F5-05] "참조 없음" 케이스 처리 | developer
+- [x] [F5-07] PARA 카테고리 범위 지정 검색 옵션 (para_filter) | developer
 
 ## Phase 6 — Polish & Beta
 

@@ -244,7 +244,11 @@ def init_vault() -> dict:
 
 
 @mcp.tool()
-def recall(query: str, top_k: int = 5) -> dict:
+def recall(
+    query: str,
+    top_k: int = 5,
+    para_filter: list[str] | None = None,
+) -> dict:
     """개인 지식베이스에서 쿼리와 관련된 문서를 검색해 컨텍스트를 반환한다.
 
     GraphDB에서 관련 문서를 검색하고 Claude Code가 답변 생성에 활용할 컨텍스트를 구성한다.
@@ -254,6 +258,8 @@ def recall(query: str, top_k: int = 5) -> dict:
     Args:
         query: 검색할 질문 또는 키워드
         top_k: 검색할 최대 문서 수 (기본: 5)
+        para_filter: 검색 범위를 제한할 PARA 카테고리 목록
+                     예: ["Projects", "Areas"] — None이면 전체 카테고리 검색
     Returns:
         관련 문서 목록 및 Claude가 사용할 컨텍스트 텍스트
     """
@@ -263,7 +269,13 @@ def recall(query: str, top_k: int = 5) -> dict:
     vault_name = settings.vault_path.name
 
     from slotmachine.rag.retriever import retrieve
-    docs = retrieve(query, db, embedding_provider=embedding_provider, top_k=top_k)
+    docs = retrieve(
+        query,
+        db,
+        embedding_provider=embedding_provider,
+        top_k=top_k,
+        para_filter=para_filter,
+    )
 
     if not docs:
         return {
@@ -465,6 +477,150 @@ def apply_classification(
         "skipped": result.skipped,
         "commit_hash": commit_hash[:8],
         "errors": result.errors,
+    }
+
+
+@mcp.tool()
+def suggest_links(
+    path: str,
+    top_k: int = 10,
+    threshold: float = 0.5,
+) -> dict:
+    """대상 문서와 관련된 문서를 탐색하고 위키링크 후보를 반환한다.
+
+    벡터 유사도(임베딩 기반)에 그래프 근접성(공통 태그·링크)을 더해 순위를 결정한다.
+    이미 위키링크로 연결된 문서와 자기 자신은 결과에서 제외된다.
+    탐색된 관련 문서는 GraphDB에 RELATED_TO 엣지로 기록된다.
+
+    Args:
+        path: vault 기준 대상 문서 상대 경로 (예: "Projects/my_project.md")
+        top_k: 반환할 최대 후보 수 (기본: 10)
+        threshold: 최소 관련도 점수 (0~1, 기본: 0.5)
+    Returns:
+        후보 문서 목록 및 총 수
+    """
+    settings = get_settings()
+    db = _make_db(settings)
+    embedding_provider = _make_embedding_provider(settings)
+
+    from slotmachine.linker.linker import find_related
+
+    candidates = find_related(
+        path,
+        db,
+        embedding_provider=embedding_provider,
+        top_k=top_k,
+        threshold=threshold,
+    )
+
+    # GraphDB에 RELATED_TO 엣지 기록
+    if candidates:
+        db.upsert_related_edges(path, [(c.path, c.final_score) for c in candidates])
+
+    db.close()
+
+    return {
+        "target_path": path,
+        "found": len(candidates),
+        "threshold": threshold,
+        "candidates": [
+            {
+                "title": c.title,
+                "path": c.path,
+                "final_score": c.final_score,
+                "vector_score": c.vector_score,
+                "proximity_boost": c.proximity_boost,
+                "para_category": c.para_category,
+                "tags": c.tags,
+                "excerpt": c.excerpt,
+            }
+            for c in candidates
+        ],
+        "note": (
+            "candidates 목록을 사용자에게 보여주고 승인을 받은 뒤 "
+            "apply_links 툴로 파일에 삽입하세요."
+        ),
+    }
+
+
+@mcp.tool()
+def apply_links(
+    path: str,
+    link_titles: list[str],
+    commit_message: str = "",
+) -> dict:
+    """승인된 위키링크를 문서에 삽입하고 git commit한다.
+
+    문서에 '## Related' 섹션이 있으면 해당 섹션 끝에 추가하고,
+    없으면 파일 끝에 새 '## Related' 섹션을 만들어 삽입한다.
+    이미 존재하는 위키링크는 자동으로 중복 제외된다.
+
+    Args:
+        path: vault 기준 대상 문서 상대 경로 (예: "Projects/my_project.md")
+        link_titles: 삽입할 위키링크 제목 목록 (suggest_links 결과에서 선택)
+        commit_message: 커밋 메시지 (생략 시 자동 생성)
+    Returns:
+        삽입된 링크 수, 커밋 해시, 오류 정보
+    """
+    settings = get_settings()
+
+    from slotmachine.linker.linker import get_wikilinks_from_content, insert_wiki_links
+    from slotmachine.sync.git_manager import GitManager
+
+    file_path = settings.vault_path / path
+    try:
+        original_content = file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "inserted": 0,
+            "commit_hash": "",
+            "error": f"파일 없음: {path}",
+        }
+
+    before_links = get_wikilinks_from_content(original_content)
+
+    try:
+        new_content = insert_wiki_links(settings.vault_path, path, link_titles)
+    except Exception as exc:
+        return {
+            "success": False,
+            "inserted": 0,
+            "commit_hash": "",
+            "error": str(exc),
+        }
+
+    after_links = get_wikilinks_from_content(new_content)
+    inserted_count = len(after_links - before_links)
+
+    if inserted_count == 0:
+        return {
+            "success": True,
+            "inserted": 0,
+            "commit_hash": "",
+            "message": "삽입할 새 링크가 없습니다 (모두 이미 존재하는 링크입니다).",
+        }
+
+    try:
+        gm = GitManager(settings.vault_path)
+        gm.add_all()
+        msg = commit_message or (
+            f"chore: add {inserted_count} wiki links to {Path(path).stem} [SlotMachine]"
+        )
+        commit_hash = gm.commit(msg)
+    except Exception as exc:
+        return {
+            "success": False,
+            "inserted": inserted_count,
+            "commit_hash": "",
+            "error": f"git 오류: {exc}",
+        }
+
+    return {
+        "success": True,
+        "inserted": inserted_count,
+        "commit_hash": commit_hash[:8],
+        "path": path,
     }
 
 

@@ -222,6 +222,7 @@ class GraphDB:
         self,
         query_embedding: list[float],
         top_k: int = 5,
+        para_filter: list[str] | None = None,
     ) -> list[dict]:
         """쿼리 임베딩과 코사인 유사도가 높은 Document를 반환한다.
 
@@ -230,21 +231,35 @@ class GraphDB:
         Args:
             query_embedding: 쿼리 임베딩 벡터
             top_k: 반환할 최대 문서 수
+            para_filter: 검색할 PARA 카테고리 목록 (None이면 전체)
         Returns:
             score 내림차순으로 정렬된 문서 dict 목록 (embedding 필드 제외)
         """
         import numpy as np
 
         with self._driver.session() as session:
-            rows = session.run(
-                """
-                MATCH (d:Document)
-                WHERE d.embedding IS NOT NULL
-                RETURN d.id AS id, d.title AS title, d.path AS path,
-                       d.content AS content, d.embedding AS embedding,
-                       d.para_category AS para_category, d.tags AS tags
-                """
-            ).data()
+            if para_filter:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.embedding IS NOT NULL
+                      AND d.para_category IN $para_filter
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.content AS content, d.embedding AS embedding,
+                           d.para_category AS para_category, d.tags AS tags
+                    """,
+                    para_filter=para_filter,
+                ).data()
+            else:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.embedding IS NOT NULL
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.content AS content, d.embedding AS embedding,
+                           d.para_category AS para_category, d.tags AS tags
+                    """
+                ).data()
 
         if not rows:
             return []
@@ -302,27 +317,127 @@ class GraphDB:
             record = result.single()
             return dict(record["m"]) if record else None
 
-    def search_by_keyword(self, query: str, top_k: int = 5) -> list[dict]:
+    # ------------------------------------------------------------------
+    # Knowledge Graph (F4)
+    # ------------------------------------------------------------------
+
+    def get_graph_proximity(self, src_path: Path | str, cand_path: Path | str) -> dict:
+        """두 문서 간 그래프 근접성 지표를 반환한다.
+
+        공통 태그 수 + 공통 위키링크 대상 수를 계산한다.
+        점수가 높을수록 두 문서는 그래프 상에서 가깝다.
+
+        Args:
+            src_path: 기준 문서 경로
+            cand_path: 비교 대상 문서 경로
+        Returns:
+            {"shared_tags": int, "shared_links": int}
+        """
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (src:Document {path: $src}), (cand:Document {path: $cand})
+                OPTIONAL MATCH (src)-[:TAGGED_WITH]->(t:Tag)<-[:TAGGED_WITH]-(cand)
+                WITH src, cand, count(DISTINCT t) AS shared_tags
+                OPTIONAL MATCH (src)-[:LINKS_TO]->(x:Document)<-[:LINKS_TO]-(cand)
+                RETURN shared_tags, count(DISTINCT x) AS shared_links
+                """,
+                src=str(src_path),
+                cand=str(cand_path),
+            ).single()
+        if result is None:
+            return {"shared_tags": 0, "shared_links": 0}
+        return {
+            "shared_tags": result["shared_tags"] or 0,
+            "shared_links": result["shared_links"] or 0,
+        }
+
+    def get_linked_titles(self, path: Path | str) -> list[str]:
+        """해당 문서에서 LINKS_TO 엣지로 연결된 문서 제목 목록을 반환한다.
+
+        Args:
+            path: 기준 문서 경로
+        Returns:
+            연결된 문서 제목 목록
+        """
+        with self._driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (d:Document {path: $path})-[:LINKS_TO]->(linked:Document)
+                RETURN linked.title AS title
+                """,
+                path=str(path),
+            ).data()
+        return [row["title"] for row in rows]
+
+    def upsert_related_edges(
+        self,
+        src_path: Path | str,
+        related: list[tuple[str, float]],
+    ) -> None:
+        """RELATED_TO 엣지를 생성 또는 업데이트한다.
+
+        Args:
+            src_path: 기준 문서 경로
+            related: [(cand_path, score), ...] 목록
+        """
+        with self._driver.session() as session:
+            for cand_path, score in related:
+                session.run(
+                    """
+                    MATCH (src:Document {path: $src}), (dst:Document {path: $dst})
+                    MERGE (src)-[r:RELATED_TO]->(dst)
+                    SET r.score = $score, r.updated_at = datetime()
+                    """,
+                    src=str(src_path),
+                    dst=str(cand_path),
+                    score=score,
+                )
+
+    def search_by_keyword(
+        self,
+        query: str,
+        top_k: int = 5,
+        para_filter: list[str] | None = None,
+    ) -> list[dict]:
         """제목 또는 내용에서 키워드로 Document를 검색한다.
 
         Args:
             query: 검색 키워드
             top_k: 반환할 최대 문서 수
+            para_filter: 검색할 PARA 카테고리 목록 (None이면 전체)
         Returns:
             매칭된 문서 dict 목록 (score=None)
         """
         with self._driver.session() as session:
-            rows = session.run(
-                """
-                MATCH (d:Document)
-                WHERE toLower(d.content) CONTAINS toLower($query)
-                   OR toLower(d.title) CONTAINS toLower($query)
-                RETURN d.id AS id, d.title AS title, d.path AS path,
-                       d.content AS content,
-                       d.para_category AS para_category, d.tags AS tags
-                LIMIT $top_k
-                """,
-                query=query,
-                top_k=top_k,
-            ).data()
+            if para_filter:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE (toLower(d.content) CONTAINS toLower($query)
+                       OR toLower(d.title) CONTAINS toLower($query))
+                      AND d.para_category IN $para_filter
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.content AS content,
+                           d.para_category AS para_category, d.tags AS tags
+                    LIMIT $top_k
+                    """,
+                    query=query,
+                    top_k=top_k,
+                    para_filter=para_filter,
+                ).data()
+            else:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE toLower(d.content) CONTAINS toLower($query)
+                       OR toLower(d.title) CONTAINS toLower($query)
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.content AS content,
+                           d.para_category AS para_category, d.tags AS tags
+                    LIMIT $top_k
+                    """,
+                    query=query,
+                    top_k=top_k,
+                ).data()
         return [{"score": None, **row} for row in rows]
