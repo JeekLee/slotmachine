@@ -150,39 +150,6 @@ class TestSavePipeline:
         assert result.success is False
         assert "예상치 못한 오류" in result.error
 
-    def test_save_records_to_history(self, tmp_path):
-        db, _ = _make_db()
-        mock_mgr = _make_git_mock(staged=["note.md"])
-        mock_history = MagicMock()
-
-        with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
-            save(tmp_path, db, sync_history=mock_history)
-
-        mock_history.record.assert_called_once()
-        operation, sync_result = mock_history.record.call_args[0]
-        assert operation == "save"
-
-    def test_save_passes_commit_hash_to_history(self, tmp_path):
-        db, _ = _make_db()
-        mock_mgr = _make_git_mock(staged=["note.md"], new_head="abc123")
-        mock_history = MagicMock()
-
-        with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
-            save(tmp_path, db, sync_history=mock_history)
-
-        _, kwargs = mock_history.record.call_args
-        assert kwargs.get("commit_hash") == "abc123"
-
-    def test_nothing_to_commit_skips_history(self, tmp_path):
-        db, _ = _make_db()
-        mock_mgr = _make_git_mock(staged=[])
-        mock_history = MagicMock()
-
-        with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
-            save(tmp_path, db, sync_history=mock_history)
-
-        mock_history.record.assert_not_called()
-
     def test_initial_commit_old_head_none(self, tmp_path):
         p = _write_md(tmp_path, "first.md", "# First\n첫 문서")
         db, _ = _make_db()
@@ -259,27 +226,6 @@ class TestLiveSyncPipeline:
 
         assert result.success is False
         assert result.error is not None
-
-    def test_sync_records_to_history(self, tmp_path):
-        db, _ = _make_db()
-        mock_mgr = _make_git_mock(old_head="old", new_head="new")
-        mock_history = MagicMock()
-
-        with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
-            live_sync(tmp_path, db, sync_history=mock_history)
-
-        mock_history.record.assert_called_once()
-        assert mock_history.record.call_args[0][0] == "sync"
-
-    def test_nothing_to_sync_skips_history(self, tmp_path):
-        db, _ = _make_db()
-        mock_mgr = _make_git_mock(old_head="sha", new_head="sha")
-        mock_history = MagicMock()
-
-        with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
-            live_sync(tmp_path, db, sync_history=mock_history)
-
-        mock_history.record.assert_not_called()
 
     def test_sync_with_initial_pull_from_none_head(self, tmp_path):
         """로컬에 커밋이 없는 상태에서 첫 pull."""

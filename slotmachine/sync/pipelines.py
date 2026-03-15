@@ -17,7 +17,6 @@ from slotmachine.sync.embedding import BaseEmbeddingProvider
 from slotmachine.sync.git_manager import GitManager
 from slotmachine.sync.graphdb import GraphDB
 from slotmachine.sync.incremental_sync import IncrementalSyncResult, incremental_sync
-from slotmachine.sync.sync_history import SyncHistory
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +60,6 @@ def save(
     commit_message: str | None = None,
     remote: str = "origin",
     branch: str = "main",
-    sync_history: SyncHistory | None = None,
     para_folder_map: dict[str, str] | None = None,
     inbox_folder: str = "INBOX",
 ) -> SaveResult:
@@ -76,7 +74,6 @@ def save(
         commit_message: 커밋 메시지 (None이면 자동 생성)
         remote: 원격 저장소 이름
         branch: 대상 브랜치 이름
-        sync_history: 이력 저장소 (None이면 기록 생략)
     Returns:
         SaveResult
     """
@@ -103,9 +100,6 @@ def save(
             inbox_folder=inbox_folder,
         )
 
-        if sync_history:
-            sync_history.record("save", result.sync_result, commit_hash=result.commit_hash)
-
         db.upsert_sync_meta(result.commit_hash)
 
     except git.GitCommandError as exc:
@@ -125,7 +119,6 @@ def live_sync(
     embedding_provider: BaseEmbeddingProvider | None = None,
     remote: str = "origin",
     branch: str = "main",
-    sync_history: SyncHistory | None = None,
     para_folder_map: dict[str, str] | None = None,
     inbox_folder: str = "INBOX",
 ) -> LiveSyncResult:
@@ -139,7 +132,6 @@ def live_sync(
         embedding_provider: 임베딩 프로바이더 (None이면 임베딩 생략)
         remote: 원격 저장소 이름
         branch: 대상 브랜치 이름
-        sync_history: 이력 저장소 (None이면 기록 생략)
     Returns:
         LiveSyncResult
     """
@@ -167,9 +159,6 @@ def live_sync(
             para_folder_map=para_folder_map,
             inbox_folder=inbox_folder,
         )
-
-        if sync_history:
-            sync_history.record("sync", result.sync_result)
 
         db.upsert_sync_meta(result.new_head)
 

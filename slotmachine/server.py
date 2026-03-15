@@ -20,7 +20,6 @@ from fastmcp import FastMCP
 from slotmachine.config import HOME_CONFIG, Settings, get_settings, write_config
 from slotmachine.sync.graphdb import GraphDB
 from slotmachine.sync.pipelines import LiveSyncResult, SaveResult, live_sync, save
-from slotmachine.sync.sync_history import SyncHistory
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +40,6 @@ def _make_embedding_provider(settings: Settings):
         return None
 
 
-def _make_history(settings: Settings) -> SyncHistory:
-    db_path = settings.vault_path / ".slotmachine" / "sync_history.db"
-    return SyncHistory(db_path)
-
-
 @mcp.tool()
 def save_vault(commit_message: str = "") -> dict:
     """Obsidian vault 변경사항을 저장하고 GraphDB를 업데이트한다.
@@ -60,14 +54,12 @@ def save_vault(commit_message: str = "") -> dict:
     settings = get_settings()
     db = _make_db(settings)
     embedding_provider = _make_embedding_provider(settings)
-    history = _make_history(settings)
 
     result: SaveResult = save(
         settings.vault_path,
         db,
         embedding_provider=embedding_provider,
         commit_message=commit_message or None,
-        sync_history=history,
         para_folder_map=settings.para_folder_map,
         inbox_folder=settings.inbox_folder,
     )
@@ -95,13 +87,11 @@ def sync_vault() -> dict:
     settings = get_settings()
     db = _make_db(settings)
     embedding_provider = _make_embedding_provider(settings)
-    history = _make_history(settings)
 
     result: LiveSyncResult = live_sync(
         settings.vault_path,
         db,
         embedding_provider=embedding_provider,
-        sync_history=history,
         para_folder_map=settings.para_folder_map,
         inbox_folder=settings.inbox_folder,
     )
