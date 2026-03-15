@@ -68,6 +68,8 @@ def save_vault(commit_message: str = "") -> dict:
         embedding_provider=embedding_provider,
         commit_message=commit_message or None,
         sync_history=history,
+        para_folder_map=settings.para_folder_map,
+        inbox_folder=settings.inbox_folder,
     )
     return {
         "success": result.success,
@@ -100,6 +102,8 @@ def sync_vault() -> dict:
         db,
         embedding_provider=embedding_provider,
         sync_history=history,
+        para_folder_map=settings.para_folder_map,
+        inbox_folder=settings.inbox_folder,
     )
     return {
         "success": result.success,
@@ -230,6 +234,8 @@ def init_vault() -> dict:
         settings.vault_path,
         db,
         embedding_provider=embedding_provider,
+        para_folder_map=settings.para_folder_map,
+        inbox_folder=settings.inbox_folder,
         show_progress=False,
     )
     return {

@@ -110,10 +110,16 @@ def test_full_sync_calls_upsert_per_file(vault):
     assert db.upsert_document.call_count == 2
 
 
-def test_full_sync_passes_para_category(vault):
-    _write_md(vault, "note.md")
+def test_full_sync_infers_para_category_from_path(vault):
+    """파일 경로에서 PARA 카테고리를 자동으로 추론한다."""
+    _write_md(vault, "Resources/note.md")
     db = _make_db()
-    full_sync(vault, db, para_category="Resources", show_progress=False)
+    full_sync(
+        vault, db,
+        para_folder_map={"Projects": "Projects", "Areas": "Areas",
+                         "Resources": "Resources", "Archives": "Archives"},
+        show_progress=False,
+    )
     _, kwargs = db.upsert_document.call_args
     assert kwargs["para_category"] == "Resources"
 

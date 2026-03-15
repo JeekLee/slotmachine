@@ -62,6 +62,8 @@ def save(
     remote: str = "origin",
     branch: str = "main",
     sync_history: SyncHistory | None = None,
+    para_folder_map: dict[str, str] | None = None,
+    inbox_folder: str = "INBOX",
 ) -> SaveResult:
     """vault 변경사항을 git push하고 GraphDB를 증분 업데이트한다.
 
@@ -95,7 +97,10 @@ def save(
 
         diff = git_mgr.diff_files(old_head, result.commit_hash)
         result.sync_result = incremental_sync(
-            diff, vault_path, db, embedding_provider=embedding_provider
+            diff, vault_path, db,
+            embedding_provider=embedding_provider,
+            para_folder_map=para_folder_map,
+            inbox_folder=inbox_folder,
         )
 
         if sync_history:
@@ -121,6 +126,8 @@ def live_sync(
     remote: str = "origin",
     branch: str = "main",
     sync_history: SyncHistory | None = None,
+    para_folder_map: dict[str, str] | None = None,
+    inbox_folder: str = "INBOX",
 ) -> LiveSyncResult:
     """원격 변경사항을 pull하고 GraphDB를 증분 업데이트한다.
 
@@ -155,7 +162,10 @@ def live_sync(
 
         diff = git_mgr.diff_files(result.previous_head, result.new_head)
         result.sync_result = incremental_sync(
-            diff, vault_path, db, embedding_provider=embedding_provider
+            diff, vault_path, db,
+            embedding_provider=embedding_provider,
+            para_folder_map=para_folder_map,
+            inbox_folder=inbox_folder,
         )
 
         if sync_history:

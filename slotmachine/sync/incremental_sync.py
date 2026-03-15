@@ -12,6 +12,7 @@ from pathlib import Path
 from slotmachine.sync.embedding import BaseEmbeddingProvider
 from slotmachine.sync.git_manager import DiffResult
 from slotmachine.sync.graphdb import GraphDB
+from slotmachine.sync.para_utils import resolve_para_category
 from slotmachine.sync.parser import parse_document
 
 logger = logging.getLogger(__name__)
@@ -44,22 +45,31 @@ def incremental_sync(
     db: GraphDB,
     *,
     embedding_provider: BaseEmbeddingProvider | None = None,
-    para_category: str = "Inbox",
+    para_folder_map: dict[str, str] | None = None,
+    inbox_folder: str = "INBOX",
 ) -> IncrementalSyncResult:
     """DiffResult를 기반으로 GraphDB를 증분 업데이트한다.
 
     생성/수정 파일은 parse → embed → upsert 처리하고,
     삭제 파일은 GraphDB에서 노드 및 관련 엣지를 제거한다.
+    각 파일의 경로에서 PARA 카테고리를 자동으로 추론한다.
 
     Args:
         diff: git diff 분석 결과
         vault_path: Obsidian vault 루트 경로
         db: 초기화된 GraphDB 인스턴스
         embedding_provider: 임베딩 프로바이더 (None이면 임베딩 생략)
-        para_category: 신규 노드 기본 PARA 카테고리
+        para_folder_map: {"Projects": "20_Projects", ...} — None이면 기본값 사용
+        inbox_folder: INBOX 폴더명 (기본: "INBOX")
     Returns:
         IncrementalSyncResult — 변경 통계
     """
+    folder_map = para_folder_map or {
+        "Projects": "Projects",
+        "Areas": "Areas",
+        "Resources": "Resources",
+        "Archives": "Archives",
+    }
     result = IncrementalSyncResult()
 
     if diff.is_empty:
@@ -81,7 +91,8 @@ def incremental_sync(
                 if embedding_provider
                 else None
             )
-            db.upsert_document(doc, embedding=embedding, para_category=para_category)
+            category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
+            db.upsert_document(doc, embedding=embedding, para_category=category)
             if is_added:
                 result.added += 1
             else:

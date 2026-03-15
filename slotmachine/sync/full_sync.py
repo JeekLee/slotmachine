@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from slotmachine.sync.embedding import BaseEmbeddingProvider
 from slotmachine.sync.graphdb import GraphDB
+from slotmachine.sync.para_utils import resolve_para_category
 from slotmachine.sync.parser import ParsedDocument, parse_document
 
 logger = logging.getLogger(__name__)
@@ -35,21 +36,32 @@ def full_sync(
     db: GraphDB,
     *,
     embedding_provider: BaseEmbeddingProvider | None = None,
-    para_category: str = "Inbox",
+    para_folder_map: dict[str, str] | None = None,
+    inbox_folder: str = "INBOX",
     show_progress: bool = True,
 ) -> SyncResult:
     """vault 내 모든 .md 파일을 GraphDB에 동기화한다.
+
+    각 파일의 경로에서 PARA 카테고리를 자동으로 추론한다.
+    예: vault/20_Projects/foo.md → para_category="Projects"
 
     Args:
         vault_path: Obsidian vault 루트 경로
         db: 초기화된 GraphDB 인스턴스
         embedding_provider: 임베딩 생성 프로바이더 (None이면 임베딩 생략)
-        para_category: 신규 노드에 부여할 기본 PARA 카테고리
+        para_folder_map: {"Projects": "20_Projects", ...} — None이면 기본값 사용
+        inbox_folder: INBOX 폴더명 (기본: "INBOX")
         show_progress: tqdm 진행률 표시 여부
 
     Returns:
         동기화 결과 통계 (SyncResult)
     """
+    folder_map = para_folder_map or {
+        "Projects": "Projects",
+        "Areas": "Areas",
+        "Resources": "Resources",
+        "Archives": "Archives",
+    }
     md_files = _collect_md_files(vault_path)
     result = SyncResult(total=len(md_files))
 
@@ -70,7 +82,8 @@ def full_sync(
                     if embedding_provider
                     else None
                 )
-                db.upsert_document(doc, embedding=embedding, para_category=para_category)
+                category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
+                db.upsert_document(doc, embedding=embedding, para_category=category)
                 result.success += 1
             except Exception as exc:
                 result.failed += 1

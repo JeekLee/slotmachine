@@ -202,11 +202,17 @@ class TestFullSyncPipeline:
         assert result.failed == 1
         assert result.success == 0
 
-    def test_pipeline_respects_para_category(self, tmp_path):
-        _write_md(tmp_path, "note.md", "# Note\n")
+    def test_pipeline_infers_para_category_from_path(self, tmp_path):
+        """파일 경로에서 PARA 카테고리를 자동으로 추론한다."""
+        _write_md(tmp_path, "Resources/note.md", "# Note\n")
         db, mock_session = _make_db()
 
-        full_sync(tmp_path, db, para_category="Resources", show_progress=False)
+        full_sync(
+            tmp_path, db,
+            para_folder_map={"Projects": "Projects", "Areas": "Areas",
+                             "Resources": "Resources", "Archives": "Archives"},
+            show_progress=False,
+        )
 
         first_kwargs = mock_session.run.call_args_list[0][1]
         assert first_kwargs["para_category"] == "Resources"
