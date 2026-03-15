@@ -73,11 +73,7 @@ class Settings(BaseSettings):
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"
     neo4j_password: str
-    # docker: 플러그인이 Docker로 Neo4j를 자동 관리
-    # external: 사용자가 직접 Neo4j를 운영
-    neo4j_mode: str = "external"
-
-    # --- 임베딩 프로바이더 ---
+# --- 임베딩 프로바이더 ---
     embedding_provider: EmbeddingProvider = EmbeddingProvider.JINA
     embedding_model: str = ""  # 빈 문자열이면 프로바이더 기본값 사용
 
