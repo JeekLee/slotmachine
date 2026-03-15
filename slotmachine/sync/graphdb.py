@@ -91,15 +91,31 @@ class GraphDB:
         self,
         doc: ParsedDocument,
         *,
+        vault_path: Path | None = None,
         embedding: list[float] | None = None,
         para_category: str = "Inbox",
     ) -> str:
         """Document 노드를 생성 또는 업데이트하고 관련 엣지를 재연결한다.
 
+        Args:
+            vault_path: vault 루트 경로. 제공 시 vault 기준 상대 경로로 저장된다.
         Returns:
             생성·업데이트된 Document 노드의 id
         """
-        node_id = doc_id(doc.path)
+        # vault_path가 있으면 상대 경로(포직스 형식)로 변환
+        if vault_path is not None:
+            try:
+                rel = doc.path.relative_to(vault_path)
+                stored_path = rel.as_posix()
+                folder_path = rel.parent.as_posix()
+            except ValueError:
+                stored_path = doc.path.as_posix()
+                folder_path = doc.path.parent.as_posix()
+        else:
+            stored_path = str(doc.path)
+            folder_path = str(doc.path.parent)
+
+        node_id = doc_id(stored_path)
 
         with self._driver.session() as session:
             # Document 노드 upsert
@@ -116,7 +132,7 @@ class GraphDB:
                 """,
                 id=node_id,
                 title=doc.title,
-                path=str(doc.path),
+                path=stored_path,
                 content=doc.raw_content,
                 tags=doc.tags,
                 para_category=para_category,
@@ -155,7 +171,7 @@ class GraphDB:
                 MATCH (d:Document {id: $id})
                 MERGE (d)-[:IN_FOLDER]->(f)
                 """,
-                folder_path=str(doc.path.parent),
+                folder_path=folder_path,
                 id=node_id,
             )
 
@@ -177,13 +193,23 @@ class GraphDB:
 
         return node_id
 
-    def delete_document(self, path: Path | str) -> bool:
+    def delete_document(self, path: Path | str, *, vault_path: Path | None = None) -> bool:
         """Document 노드와 연결된 모든 엣지를 제거한다.
 
+        Args:
+            path: 삭제할 문서 경로 (절대 또는 상대)
+            vault_path: vault 루트 경로. 제공 시 vault 기준 상대 경로로 ID를 계산한다.
         Returns:
             삭제된 노드가 있으면 True
         """
-        node_id = doc_id(Path(path))
+        if vault_path is not None:
+            try:
+                stored_path = Path(path).relative_to(vault_path).as_posix()
+            except ValueError:
+                stored_path = Path(path).as_posix()
+        else:
+            stored_path = str(path)
+        node_id = doc_id(stored_path)
         with self._driver.session() as session:
             result = session.run(
                 """

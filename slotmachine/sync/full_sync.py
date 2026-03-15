@@ -83,7 +83,7 @@ def full_sync(
                     else None
                 )
                 category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
-                db.upsert_document(doc, embedding=embedding, para_category=category)
+                db.upsert_document(doc, vault_path=vault_path, embedding=embedding, para_category=category)
                 result.success += 1
             except Exception as exc:
                 result.failed += 1
@@ -100,5 +100,11 @@ def full_sync(
 
 
 def _collect_md_files(vault_path: Path) -> list[Path]:
-    """vault 내 모든 .md 파일을 재귀 탐색해 정렬된 리스트로 반환한다."""
-    return sorted(vault_path.rglob("*.md"))
+    """vault 내 모든 .md 파일을 재귀 탐색해 정렬된 리스트로 반환한다.
+
+    .으로 시작하는 숨김 디렉토리(.git, .obsidian 등)는 제외한다.
+    """
+    return sorted(
+        p for p in vault_path.rglob("*.md")
+        if not any(part.startswith(".") for part in p.relative_to(vault_path).parts)
+    )

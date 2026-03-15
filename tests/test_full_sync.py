@@ -61,6 +61,26 @@ def test_collect_empty_vault(vault):
     assert _collect_md_files(vault) == []
 
 
+def test_collect_excludes_hidden_dir(vault):
+    """숨김 디렉토리(.obsidian, .git 등) 하위 파일은 수집에서 제외된다."""
+    _write_md(vault, "visible.md")
+    _write_md(vault, ".obsidian/config.md")
+    _write_md(vault, ".git/COMMIT_EDITMSG.md")
+    files = _collect_md_files(vault)
+    assert len(files) == 1
+    assert all(".obsidian" not in str(f) and ".git" not in str(f) for f in files)
+
+
+def test_collect_excludes_nested_hidden_dir(vault):
+    """중첩된 숨김 디렉토리 내 파일도 제외된다."""
+    _write_md(vault, "Projects/task.md")
+    _write_md(vault, "Projects/.trash/deleted.md")
+    files = _collect_md_files(vault)
+    names = [f.name for f in files]
+    assert "task.md" in names
+    assert "deleted.md" not in names
+
+
 # ---------------------------------------------------------------------------
 # SyncResult
 # ---------------------------------------------------------------------------

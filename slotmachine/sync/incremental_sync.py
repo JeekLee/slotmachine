@@ -18,6 +18,15 @@ from slotmachine.sync.parser import parse_document
 logger = logging.getLogger(__name__)
 
 
+def _is_hidden(path: Path, vault_path: Path) -> bool:
+    """.으로 시작하는 숨김 디렉토리(.git, .obsidian 등) 하위 파일이면 True."""
+    try:
+        rel = path.relative_to(vault_path)
+        return any(part.startswith(".") for part in rel.parts)
+    except ValueError:
+        return False
+
+
 @dataclass
 class IncrementalSyncResult:
     """증분 동기화 결과 통계."""
@@ -81,8 +90,11 @@ def incremental_sync(
         len(diff.added), len(diff.modified), len(diff.deleted),
     )
 
-    # 생성/수정 파일 처리
+    # 생성/수정 파일 처리 (.으로 시작하는 숨김 디렉토리 제외)
     for path in diff.added + diff.modified:
+        if _is_hidden(path, vault_path):
+            logger.debug("숨김 디렉토리 파일 스킵: %s", path)
+            continue
         is_added = path in diff.added
         try:
             doc = parse_document(path)
@@ -92,7 +104,7 @@ def incremental_sync(
                 else None
             )
             category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
-            db.upsert_document(doc, embedding=embedding, para_category=category)
+            db.upsert_document(doc, vault_path=vault_path, embedding=embedding, para_category=category)
             if is_added:
                 result.added += 1
             else:
@@ -104,8 +116,10 @@ def incremental_sync(
 
     # 삭제 파일 처리
     for path in diff.deleted:
+        if _is_hidden(path, vault_path):
+            continue
         try:
-            db.delete_document(path)
+            db.delete_document(path, vault_path=vault_path)
             result.deleted += 1
         except Exception as exc:
             result.failed += 1

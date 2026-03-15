@@ -189,6 +189,53 @@ def test_upsert_uses_inbox_as_default_para_category():
     assert first_kwargs["para_category"] == "Inbox"
 
 
+def test_upsert_stores_relative_path_when_vault_path_given(tmp_path):
+    """vault_path 제공 시 vault 기준 상대 경로(포직스)로 저장된다."""
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    abs_path = tmp_path / "Projects" / "note.md"
+    doc = ParsedDocument(path=abs_path, title="Note", frontmatter={})
+    db.upsert_document(doc, vault_path=tmp_path)
+
+    first_kwargs = mock_session.run.call_args_list[0][1]
+    assert first_kwargs["path"] == "Projects/note.md"
+
+
+def test_upsert_doc_id_uses_relative_path_when_vault_path_given(tmp_path):
+    """vault_path 제공 시 doc_id는 상대 경로 기반으로 계산된다."""
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    abs_path = tmp_path / "Projects" / "note.md"
+    doc = ParsedDocument(path=abs_path, title="Note", frontmatter={})
+    result = db.upsert_document(doc, vault_path=tmp_path)
+
+    assert result == doc_id("Projects/note.md")
+
+
+def test_delete_uses_relative_path_when_vault_path_given(tmp_path):
+    """vault_path 제공 시 delete는 상대 경로 기반 ID로 삭제한다."""
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    mock_result = MagicMock()
+    mock_result.single.return_value = {"deleted": 1}
+    mock_session.run.return_value = mock_result
+
+    abs_path = tmp_path / "Projects" / "note.md"
+    db.delete_document(abs_path, vault_path=tmp_path)
+
+    id_kwarg = mock_session.run.call_args_list[0][1]["id"]
+    assert id_kwarg == doc_id("Projects/note.md")
+
+
 # ---------------------------------------------------------------------------
 # delete_document
 # ---------------------------------------------------------------------------
