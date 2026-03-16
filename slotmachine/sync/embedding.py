@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import httpx
 
 from slotmachine.config import EmbeddingProvider, Settings
 
 logger = logging.getLogger(__name__)
+
+_MAX_EMBED_CHARS = 20_000  # 이 길이 초과 시 분할 대상으로 판단
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +133,43 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 # ---------------------------------------------------------------------------
 # 팩토리
 # ---------------------------------------------------------------------------
+
+def embed_one_safe(
+    provider: BaseEmbeddingProvider,
+    content: str,
+    path: Path | str | None = None,
+) -> tuple[list[float] | None, bool]:
+    """임베딩 생성 — 길이 초과 시 분할 대상으로 표시, 일시적 오류 시 재시도 후 None 폴백.
+
+    - 길이가 _MAX_EMBED_CHARS 초과: (None, True) 반환 — 분할 대상
+    - 일시적 오류 (네트워크, Rate Limit): 1회 재시도 후 (None, False) 반환 — embedding-less upsert
+
+    Args:
+        provider: 임베딩 프로바이더
+        content: 임베딩할 텍스트
+        path: 로그용 파일 경로 (옵션)
+
+    Returns:
+        (embedding, is_oversized) 튜플.
+        is_oversized=True → 분할 대상, False → 성공 또는 일시적 실패
+    """
+    label = str(path) if path else "?"
+
+    if len(content) > _MAX_EMBED_CHARS:
+        logger.warning("문서 크기 초과 (분할 필요): %s (%d자)", label, len(content))
+        return None, True
+
+    for attempt in range(2):
+        try:
+            return provider.embed_one(content), False
+        except Exception as exc:
+            if attempt == 0:
+                logger.warning("임베딩 실패 (재시도): %s — %s", label, exc)
+            else:
+                logger.warning("임베딩 실패 (embedding=None 폴백): %s — %s", label, exc)
+
+    return None, False
+
 
 def get_provider(settings: Settings) -> BaseEmbeddingProvider:
     """Settings에 따라 적절한 EmbeddingProvider 인스턴스를 반환한다."""

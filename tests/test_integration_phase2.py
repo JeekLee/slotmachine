@@ -85,9 +85,9 @@ class TestSavePipeline:
         assert result.commit_hash == "new_head_sha"
 
     def test_save_with_added_file_syncs_graphdb(self, tmp_path):
-        p = _write_md(tmp_path, "note.md", "# Note\n본문")
+        p = _write_md(tmp_path, "Resources/note.md", "# Note\n본문")
         db, _ = _make_db()
-        mock_mgr = _make_git_mock(staged=["note.md"], diff=DiffResult(added=[p]))
+        mock_mgr = _make_git_mock(staged=["Resources/note.md"], diff=DiffResult(added=[p]))
 
         with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
             result = save(tmp_path, db)
@@ -151,10 +151,10 @@ class TestSavePipeline:
         assert "예상치 못한 오류" in result.error
 
     def test_initial_commit_old_head_none(self, tmp_path):
-        p = _write_md(tmp_path, "first.md", "# First\n첫 문서")
+        p = _write_md(tmp_path, "Resources/first.md", "# First\n첫 문서")
         db, _ = _make_db()
         mock_mgr = _make_git_mock(
-            old_head=None, staged=["first.md"], diff=DiffResult(added=[p])
+            old_head=None, staged=["Resources/first.md"], diff=DiffResult(added=[p])
         )
 
         with patch("slotmachine.sync.pipelines.GitManager", return_value=mock_mgr):
@@ -180,7 +180,7 @@ class TestLiveSyncPipeline:
         mock_mgr.diff_files.assert_not_called()
 
     def test_sync_processes_modified_files(self, tmp_path):
-        p = _write_md(tmp_path, "updated.md", "# Updated\n변경됨")
+        p = _write_md(tmp_path, "Resources/updated.md", "# Updated\n변경됨")
         db, _ = _make_db()
         mock_mgr = _make_git_mock(
             old_head="old", new_head="new", diff=DiffResult(modified=[p])
@@ -229,7 +229,7 @@ class TestLiveSyncPipeline:
 
     def test_sync_with_initial_pull_from_none_head(self, tmp_path):
         """로컬에 커밋이 없는 상태에서 첫 pull."""
-        p = _write_md(tmp_path, "first.md", "# First\n첫 문서")
+        p = _write_md(tmp_path, "Resources/first.md", "# First\n첫 문서")
         db, _ = _make_db()
         mock_mgr = _make_git_mock(
             old_head=None, new_head="first_commit",

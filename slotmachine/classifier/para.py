@@ -35,6 +35,7 @@ class InboxDocument:
     tags: list[str]
     excerpt: str       # 본문 앞부분 (분류 판단용)
     full_content: str  # 전체 원본 내용 (LLM 재작성용)
+    oversized: bool = False  # 임베딩 한도 초과 → 분할 필요
 
 
 @dataclass
@@ -58,6 +59,7 @@ def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
     Returns:
         InboxDocument 목록 (재귀 포함, 숨김 폴더 제외)
     """
+    from slotmachine.sync.embedding import _MAX_EMBED_CHARS
     from slotmachine.sync.parser import parse_document
 
     if not inbox_path.exists():
@@ -79,6 +81,7 @@ def load_inbox(inbox_path: Path, vault_path: Path) -> list[InboxDocument]:
                 tags=parsed.tags,
                 excerpt=excerpt,
                 full_content="",
+                oversized=len(parsed.raw_content) > _MAX_EMBED_CHARS,
             ))
         except Exception as exc:
             logger.warning("파싱 실패 — %s: %s", md_file.name, exc)

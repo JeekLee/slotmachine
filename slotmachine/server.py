@@ -71,6 +71,7 @@ def save_vault(commit_message: str = "") -> dict:
         "modified": result.sync_result.modified,
         "deleted": result.sync_result.deleted,
         "failed": result.sync_result.failed,
+        "oversized_docs": result.sync_result.oversized_docs,
         "error": result.error,
     }
 
@@ -104,6 +105,7 @@ def sync_vault() -> dict:
         "modified": result.sync_result.modified,
         "deleted": result.sync_result.deleted,
         "failed": result.sync_result.failed,
+        "oversized_docs": result.sync_result.oversized_docs,
         "error": result.error,
     }
 
@@ -233,6 +235,7 @@ def init_vault() -> dict:
         "total": result.total,
         "success_count": result.success,
         "failed": result.failed,
+        "oversized_docs": result.oversized_docs,
         "vault_path": str(settings.vault_path),
         "embedding_enabled": embedding_provider is not None,
         "errors": [f"{p.name}: {msg}" for p, msg in result.errors[:5]],
@@ -349,9 +352,11 @@ def classify_inbox() -> dict:
                 "title": doc.title,
                 "tags": doc.tags,
                 "excerpt": doc.excerpt,
+                "oversized": doc.oversized,
             }
             for doc in docs
         ],
+        "oversized_count": sum(1 for doc in docs if doc.oversized),
         "vault_structure": vault_structure,
     }
 
@@ -471,6 +476,83 @@ def apply_classification(
         "success": True,
         "moved": result.moved,
         "skipped": result.skipped,
+        "commit_hash": commit_hash[:8],
+        "errors": result.errors,
+    }
+
+
+@mcp.tool()
+def apply_split(
+    original_path: str,
+    split_docs: list[dict],
+    commit_message: str = "",
+) -> dict:
+    """사용자가 승인한 문서 분할 결과를 vault에 적용한다.
+
+    맥락 기반 분할은 호스트 LLM(Claude Code)이 수행하며,
+    이 툴은 분할 파일 생성 → 원본 삭제 → GraphDB 업데이트 → git commit을 담당한다.
+
+    Inbox 문서의 경우 GraphDB 업데이트는 생략된다 (Inbox는 GraphDB 적재 제외).
+    분할된 Inbox 문서는 이후 classify_inbox / apply_classification으로 분류한다.
+
+    Args:
+        original_path: vault 기준 원본 파일 상대경로
+                       예: "00_Inbox/긴문서.md" 또는 "Resources/긴참고자료.md"
+        split_docs: 분할 문서 목록
+                    [{"filename": "분할_파트1.md", "content": "전체 마크다운 내용"}, ...]
+        commit_message: 커밋 메시지 (생략 시 자동 생성)
+    Returns:
+        생성된 파일 목록, 삭제된 원본, 커밋 해시, 오류 목록
+    """
+    settings = get_settings()
+    db = _make_db(settings)
+    embedding_provider = _make_embedding_provider(settings)
+
+    from slotmachine.classifier.splitter import apply_split as _apply_split
+    from slotmachine.sync.git_manager import GitManager
+
+    result = _apply_split(
+        settings.vault_path,
+        original_path,
+        split_docs,
+        db,
+        embedding_provider=embedding_provider,
+        para_folder_map=settings.para_folder_map,
+        inbox_folder=settings.inbox_folder,
+    )
+    db.close()
+
+    if not result.created:
+        return {
+            "success": False,
+            "created": [],
+            "deleted": "",
+            "commit_hash": "",
+            "errors": result.errors,
+            "message": "생성된 분할 파일이 없습니다.",
+        }
+
+    try:
+        gm = GitManager(settings.vault_path)
+        gm.add_all()
+        original_stem = original_path.split("/")[-1].replace(".md", "")
+        msg = commit_message or (
+            f"refactor: split '{original_stem}' into {len(result.created)} docs [SlotMachine]"
+        )
+        commit_hash = gm.commit(msg)
+    except Exception as exc:
+        return {
+            "success": result.success,
+            "created": result.created,
+            "deleted": result.deleted,
+            "commit_hash": "",
+            "errors": result.errors + [f"git 오류: {exc}"],
+        }
+
+    return {
+        "success": result.success,
+        "created": result.created,
+        "deleted": result.deleted,
         "commit_hash": commit_hash[:8],
         "errors": result.errors,
     }

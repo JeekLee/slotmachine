@@ -4,6 +4,11 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 
 ---
 
+## Phase 1 — Foundation (F1)
+
+- [x] [F1-01 ~ F1-06] 초기 구현 완료 (Sprint 1~2)
+- [ ] [F1-08] sync 중 embedding 실패 문서 수집 → 분할 제안 → 승인 → vault 저장 + 원본 삭제 + GraphDB 갱신 | developer ← Sprint 6
+
 ## Phase 2 — Live Sync (F2)
 
 - [ ] [F2-01] Webhook 수신 서버 구현 (fastapi + uvicorn) | developer + infra
@@ -24,6 +29,7 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 - [ ] [F3-05] 사용자 일괄 승인 / 개별 수정 인터랙션 | developer
 - [ ] [F3-06] 파일 이동 + 자동 git commit | developer
 - [ ] [F3-07] 확신도 낮은 문서 별도 처리 플로우 | developer
+- [ ] [F3-08] classify_inbox 중 embedding 실패 → 맥락 분할 제안 → 승인 → 분할 문서로 PARA 분류 진행 + 원본 삭제 | developer ← Sprint 6
 
 ## Phase 4 — Knowledge Graph (F4) ✅ Sprint 5 완료
 

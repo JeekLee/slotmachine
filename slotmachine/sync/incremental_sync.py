@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from slotmachine.sync.embedding import BaseEmbeddingProvider
+from slotmachine.sync.embedding import BaseEmbeddingProvider, embed_one_safe
 from slotmachine.sync.git_manager import DiffResult
 from slotmachine.sync.graphdb import GraphDB
 from slotmachine.sync.para_utils import resolve_para_category
@@ -35,6 +35,7 @@ class IncrementalSyncResult:
     modified: int = 0
     deleted: int = 0
     failed: int = 0
+    oversized_docs: list[str] = field(default_factory=list)
     errors: list[tuple[Path, str]] = field(default_factory=list)
 
     @property
@@ -97,13 +98,19 @@ def incremental_sync(
             continue
         is_added = path in diff.added
         try:
-            doc = parse_document(path)
-            embedding = (
-                embedding_provider.embed_one(doc.raw_content)
-                if embedding_provider
-                else None
-            )
             category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
+            if category == "Inbox":
+                logger.debug("Inbox 스킵: %s", path)
+                continue
+            doc = parse_document(path)
+            if embedding_provider:
+                embedding, is_oversized = embed_one_safe(
+                    embedding_provider, doc.raw_content, path
+                )
+                if is_oversized:
+                    result.oversized_docs.append(str(path.relative_to(vault_path)))
+            else:
+                embedding, is_oversized = None, False
             db.upsert_document(doc, vault_path=vault_path, embedding=embedding, para_category=category)
             if is_added:
                 result.added += 1

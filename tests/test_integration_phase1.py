@@ -150,8 +150,8 @@ class TestEmbeddingToGraphDB:
 
 class TestFullSyncPipeline:
     def test_pipeline_processes_all_files(self, tmp_path):
-        _write_md(tmp_path, "a.md", "# A\n내용A")
-        _write_md(tmp_path, "sub/b.md", "# B\n내용B")
+        _write_md(tmp_path, "Resources/a.md", "# A\n내용A")
+        _write_md(tmp_path, "Resources/sub/b.md", "# B\n내용B")
         db, _ = _make_db()
 
         result = full_sync(tmp_path, db, show_progress=False)
@@ -161,8 +161,8 @@ class TestFullSyncPipeline:
         assert result.failed == 0
 
     def test_pipeline_with_embedder_calls_embed_per_file(self, tmp_path):
-        _write_md(tmp_path, "a.md", "# A\n내용A")
-        _write_md(tmp_path, "b.md", "# B\n내용B")
+        _write_md(tmp_path, "Resources/a.md", "# A\n내용A")
+        _write_md(tmp_path, "Resources/b.md", "# B\n내용B")
         db, _ = _make_db()
         embedder = _StubEmbedder()
 
@@ -171,7 +171,7 @@ class TestFullSyncPipeline:
         assert len(embedder.called_with) == 2
 
     def test_pipeline_passes_embedding_to_upsert(self, tmp_path):
-        _write_md(tmp_path, "note.md", "# Note\n본문")
+        _write_md(tmp_path, "Resources/note.md", "# Note\n본문")
         db, mock_session = _make_db()
         embedder = _StubEmbedder(dim=4)
 
@@ -182,7 +182,7 @@ class TestFullSyncPipeline:
         assert emb_calls[0][1]["embedding"] == pytest.approx([0.1, 0.2, 0.3, 0.4])
 
     def test_pipeline_without_embedder_skips_embedding(self, tmp_path):
-        _write_md(tmp_path, "note.md", "# Note\n본문")
+        _write_md(tmp_path, "Resources/note.md", "# Note\n본문")
         db, mock_session = _make_db()
 
         full_sync(tmp_path, db, embedding_provider=None, show_progress=False)
@@ -190,8 +190,9 @@ class TestFullSyncPipeline:
         emb_calls = [c for c in mock_session.run.call_args_list if "embedding" in c[0][0]]
         assert emb_calls == []
 
-    def test_pipeline_error_in_embed_counts_as_failed(self, tmp_path):
-        _write_md(tmp_path, "note.md", "# Note\n")
+    def test_pipeline_transient_embed_error_uses_embedding_less_upsert(self, tmp_path):
+        """일시적 임베딩 오류 시 embedding=None으로 upsert — sync 실패로 처리되지 않는다."""
+        _write_md(tmp_path, "Resources/note.md", "# Note\n")
         db, _ = _make_db()
 
         bad_embedder = MagicMock(spec=BaseEmbeddingProvider)
@@ -199,8 +200,10 @@ class TestFullSyncPipeline:
 
         result = full_sync(tmp_path, db, embedding_provider=bad_embedder, show_progress=False)
 
-        assert result.failed == 1
-        assert result.success == 0
+        # 임베딩 실패는 sync 실패가 아니다 — 문서는 GraphDB에 저장됨
+        assert result.success == 1
+        assert result.failed == 0
+        assert result.oversized_docs == []
 
     def test_pipeline_infers_para_category_from_path(self, tmp_path):
         """파일 경로에서 PARA 카테고리를 자동으로 추론한다."""
@@ -229,7 +232,7 @@ class TestFullSyncPipeline:
         assert result.success == 3
 
     def test_pipeline_result_has_error_details(self, tmp_path):
-        p = _write_md(tmp_path, "bad.md", "# Bad\n")
+        p = _write_md(tmp_path, "Resources/bad.md", "# Bad\n")
         db, _ = _make_db()
 
         with patch("slotmachine.sync.full_sync.parse_document", side_effect=ValueError("파싱 실패")):

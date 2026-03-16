@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from slotmachine.sync.embedding import BaseEmbeddingProvider
+from slotmachine.sync.embedding import BaseEmbeddingProvider, embed_one_safe
 from slotmachine.sync.graphdb import GraphDB
 from slotmachine.sync.para_utils import resolve_para_category
 from slotmachine.sync.parser import ParsedDocument, parse_document
@@ -24,6 +24,7 @@ class SyncResult:
     total: int = 0
     success: int = 0
     failed: int = 0
+    oversized_docs: list[str] = field(default_factory=list)
     errors: list[tuple[Path, str]] = field(default_factory=list)
 
     @property
@@ -76,13 +77,20 @@ def full_sync(
         for path in progress:
             progress.set_postfix_str(path.name, refresh=False)
             try:
-                doc = parse_document(path)
-                embedding = (
-                    embedding_provider.embed_one(doc.raw_content)
-                    if embedding_provider
-                    else None
-                )
                 category = resolve_para_category(path, vault_path, folder_map, inbox_folder)
+                if category == "Inbox":
+                    logger.debug("Inbox 스킵: %s", path)
+                    result.total -= 1
+                    continue
+                doc = parse_document(path)
+                if embedding_provider:
+                    embedding, is_oversized = embed_one_safe(
+                        embedding_provider, doc.raw_content, path
+                    )
+                    if is_oversized:
+                        result.oversized_docs.append(str(path.relative_to(vault_path)))
+                else:
+                    embedding, is_oversized = None, False
                 db.upsert_document(doc, vault_path=vault_path, embedding=embedding, para_category=category)
                 result.success += 1
             except Exception as exc:
