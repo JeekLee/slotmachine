@@ -192,12 +192,14 @@ def apply_classification(
 
     Args:
         vault_path: vault 루트 절대 경로
-        classifications: [{path, category, target_folder?, content?}, ...] 목록
+        classifications: [{path, category, target_folder?, content?, new_filename?}, ...] 목록
             - path: vault 기준 원본 상대 경로
             - category: Projects / Areas / Resources / Archives / Inbox
             - target_folder: 이동할 폴더 (vault 기준 상대경로, 생략 시 category 폴더 사용)
               예: "20_Projects/CryptoLab/Rocky"
             - content: LLM이 재작성한 문서 내용 (생략 시 원본 유지)
+            - new_filename: 이동 시 사용할 새 파일명 (생략 시 원본 파일명 유지)
+              예: "2024_앱출시_체크리스트.md" (.md 확장자 없으면 자동 추가)
         para_folder_map: 카테고리 → 폴더명 매핑 (None이면 기본값 사용)
     Returns:
         ClassifyResult
@@ -238,11 +240,19 @@ def apply_classification(
             target_folder = vault_path / folders[category]
 
         target_folder.mkdir(parents=True, exist_ok=True)
-        dst = target_folder / src.name
+
+        # 파일명 결정: new_filename > 원본 파일명
+        new_filename = item.get("new_filename", "").strip()
+        if new_filename:
+            if not new_filename.endswith(".md"):
+                new_filename += ".md"
+            dst = target_folder / new_filename
+        else:
+            dst = target_folder / src.name
 
         # 파일명 충돌 시 번호 추가
         if dst.exists() and dst != src:
-            stem, suffix = src.stem, src.suffix
+            stem, suffix = dst.stem, dst.suffix
             counter = 1
             while dst.exists():
                 dst = target_folder / f"{stem}_{counter}{suffix}"

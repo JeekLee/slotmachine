@@ -25,6 +25,7 @@ _(없음)_
 - [x] [P6-04] Inbox 문서 GraphDB 적재 제외 — full_sync/incremental_sync 스킵 처리 | developer
 - [x] [F1-08] sync 중 embedding 실패(oversized) 수집 → apply_split MCP tool + splitter 모듈 구현 | developer
 - [x] [F3-08] classify_inbox oversized 플래그 노출 → apply_split으로 분할 후 PARA 분류 진행 | developer
+- [x] [F3-09] 분류 시 파일명 자동 제안 — 관련 문서 패턴 우선 / fallback: 목적지 폴더 패턴 / rename+move 동시 처리 / inbox.md 5.5단계 추가 | developer
 
 ---
 

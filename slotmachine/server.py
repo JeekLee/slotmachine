@@ -428,6 +428,7 @@ def apply_classification(
                 "category": "Projects",              (필수)
                 "target_folder": "20_Projects/CryptoLab/Rocky",  (선택 — 생략 시 category 폴더)
                 "content": "재작성된 전체 문서 내용"  (선택 — 생략 시 원본 유지)
+                "new_filename": "새파일명.md"        (선택 — 생략 시 원본 파일명 유지)
             }
             category 값: Projects / Areas / Resources / Archives / Inbox
             (Inbox는 이동하지 않고 건너뜀)
