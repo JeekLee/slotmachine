@@ -77,11 +77,15 @@ def find_related(
     embedding_provider=None,
     top_k: int = 10,
     threshold: float = 0.65,
+    embeddings_cache: list[dict] | None = None,
 ) -> list[LinkCandidate]:
     """대상 문서와 관련된 문서 후보를 반환한다.
 
     벡터 유사도(임베딩 기반)에 그래프 근접성(공통 태그·링크)을 더해 순위를 매긴다.
     이미 위키링크로 연결된 문서와 자기 자신은 결과에서 제외된다.
+
+    embeddings_cache가 제공되면 Neo4j 임베딩 풀스캔을 생략하고 캐시를 재사용한다.
+    relink 배치 처리 시 활용해 Neo4j 쿼리 수를 대폭 줄인다.
 
     Args:
         target_path: vault 기준 대상 문서 상대 경로
@@ -89,53 +93,84 @@ def find_related(
         embedding_provider: 임베딩 프로바이더 (None이면 키워드 검색 폴백)
         top_k: 반환할 최대 후보 수
         threshold: 최소 final_score 임계값 (0~1)
+        embeddings_cache: 사전 로드된 임베딩 목록 (relink 배치용)
     Returns:
         final_score 내림차순 LinkCandidate 목록
     """
+    import numpy as np
+
     # 1. 대상 문서 조회
-    doc_data = db.get_document(target_path)
+    if embeddings_cache is not None:
+        doc_data = next(
+            (d for d in embeddings_cache if d["path"] == target_path), None
+        )
+    else:
+        doc_data = db.get_document(target_path)
+
     if doc_data is None:
         logger.warning("GraphDB에서 문서를 찾을 수 없음: %s", target_path)
         return []
 
     target_title = doc_data.get("title", "")
     already_linked = set(db.get_linked_titles(target_path))
-    already_linked.add(target_title)  # 자기 자신도 제외
+    already_linked.add(target_title)
 
-    # 2. 유사 문서 후보 수집 (top_k의 3배 풀에서 필터링)
+    # 2. 유사 문서 후보 수집 (top_k의 3배 풀)
     raw: list[dict] = []
     embedding = doc_data.get("embedding")
 
-    if embedding_provider and not embedding:
-        # DB에 임베딩이 없으면 현재 내용으로 생성
-        content = doc_data.get("content", "")
-        if content:
-            embedding = embedding_provider.embed_one(content)
-
-    if embedding:
+    if embeddings_cache is not None and embedding:
+        # 캐시 직접 사용 — Neo4j 풀스캔 없음
+        q = np.array(embedding, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q))
+        scored: list[tuple[float, dict]] = []
+        for row in embeddings_cache:
+            if row["path"] == target_path:
+                continue
+            emb = row.get("embedding")
+            if not emb:
+                continue
+            e = np.array(emb, dtype=np.float32)
+            e_norm = float(np.linalg.norm(e))
+            score = (
+                float(np.dot(q, e) / (q_norm * e_norm))
+                if q_norm > 0 and e_norm > 0
+                else 0.0
+            )
+            scored.append((score, {k: v for k, v in row.items() if k != "embedding"}))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        raw = [{"score": s, **doc} for s, doc in scored[: top_k * 3]]
+    elif embedding:
+        if embedding_provider and not embedding:
+            content = doc_data.get("content", "")
+            if content:
+                embedding = embedding_provider.embed_one(content)
         raw = db.search_similar_by_embedding(embedding, top_k=top_k * 3)
     else:
-        # 임베딩 없음 → 키워드 폴백 (제목 + 태그 조합)
         query_terms = " ".join([target_title] + list(doc_data.get("tags") or []))
         raw = db.search_by_keyword(query_terms, top_k=top_k * 3)
 
-    # 3. 필터링 + 그래프 근접성 보정
+    # 3. 기본 필터링 (자기 자신 / 이미 연결됨 / 격리 카테고리)
+    filtered = [
+        row for row in raw
+        if row.get("title") not in already_linked
+        and row.get("path") != target_path
+        and row.get("para_category") not in _ISOLATED_CATEGORIES
+    ]
+    if not filtered:
+        return []
+
+    # 4. 그래프 근접성 보정 — 배치 단일 쿼리
+    cand_paths = [row["path"] for row in filtered]
+    proximity_map = db.get_graph_proximity_batch(target_path, cand_paths)
+
     candidates: list[LinkCandidate] = []
-    for row in raw:
-        cand_title = row.get("title", "")
-        cand_path = row.get("path", "")
-
-        if cand_title in already_linked:
-            continue
-        if cand_path == target_path:
-            continue
-        if row.get("para_category") in _ISOLATED_CATEGORIES:
-            continue
-
+    for row in filtered:
+        cand_path = row["path"]
         vector_score = float(row.get("score") or 0.0)
-        proximity = db.get_graph_proximity(target_path, cand_path)
-        boost = min(proximity["shared_tags"] * _TAG_BOOST_UNIT, _TAG_BOOST_MAX) + min(
-            proximity["shared_links"] * _LINK_BOOST_UNIT, _LINK_BOOST_MAX
+        prox = proximity_map.get(str(cand_path), {"shared_tags": 0, "shared_links": 0})
+        boost = min(prox["shared_tags"] * _TAG_BOOST_UNIT, _TAG_BOOST_MAX) + min(
+            prox["shared_links"] * _LINK_BOOST_UNIT, _LINK_BOOST_MAX
         )
         final_score = min(vector_score + boost, 1.0)
 
@@ -145,7 +180,7 @@ def find_related(
         content = row.get("content", "")
         candidates.append(
             LinkCandidate(
-                title=cand_title,
+                title=row.get("title", ""),
                 path=cand_path,
                 vector_score=vector_score,
                 proximity_boost=round(boost, 4),
@@ -157,7 +192,20 @@ def find_related(
         )
 
     candidates.sort(key=lambda c: c.final_score, reverse=True)
-    return candidates[:top_k]
+    top_candidates = candidates[:top_k]
+
+    # 5. 캐시 모드에서 excerpt가 없으면 content 별도 조회
+    if embeddings_cache is not None:
+        paths_needing_content = [
+            c.path for c in top_candidates if not c.excerpt
+        ]
+        if paths_needing_content:
+            contents = db.get_contents_by_paths(paths_needing_content)
+            for c in top_candidates:
+                if not c.excerpt and c.path in contents:
+                    c.excerpt = contents[c.path][:300].strip()
+
+    return top_candidates
 
 
 # ──────────────────────────────────────────

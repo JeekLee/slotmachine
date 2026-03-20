@@ -750,12 +750,16 @@ def relink(
             "note": "재판단 대상 문서가 없습니다. vault가 최신 상태입니다.",
         }
 
+    # 임베딩 1회 로드 — 피벗 수에 관계없이 Neo4j 풀스캔 1회로 고정 (F4-12-02)
+    embeddings_cache = db.load_embeddings_cache(para_filter)
+
     results = []
     for doc in pivot_docs:
         candidates = find_related(
             doc["path"],
             db,
             embedding_provider=embedding_provider,
+            embeddings_cache=embeddings_cache,
         )
         if candidates:
             results.append({

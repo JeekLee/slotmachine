@@ -253,6 +253,7 @@ class GraphDB:
         """쿼리 임베딩과 코사인 유사도가 높은 Document를 반환한다.
 
         임베딩이 저장된 문서에 한해 Python-side 코사인 유사도를 계산한다.
+        유사도 계산 시 content는 제외하고, 상위 top_k 문서에 대해서만 별도 조회한다.
 
         Args:
             query_embedding: 쿼리 임베딩 벡터
@@ -271,7 +272,7 @@ class GraphDB:
                     WHERE d.embedding IS NOT NULL
                       AND d.para_category IN $para_filter
                     RETURN d.id AS id, d.title AS title, d.path AS path,
-                           d.content AS content, d.embedding AS embedding,
+                           d.embedding AS embedding,
                            d.para_category AS para_category, d.tags AS tags
                     """,
                     para_filter=para_filter,
@@ -282,7 +283,7 @@ class GraphDB:
                     MATCH (d:Document)
                     WHERE d.embedding IS NOT NULL
                     RETURN d.id AS id, d.title AS title, d.path AS path,
-                           d.content AS content, d.embedding AS embedding,
+                           d.embedding AS embedding,
                            d.para_category AS para_category, d.tags AS tags
                     """
                 ).data()
@@ -306,7 +307,118 @@ class GraphDB:
             scored.append((score, doc))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [{"score": s, **doc} for s, doc in scored[:top_k]]
+        top = scored[:top_k]
+
+        # 선별된 top_k 문서에 대해서만 content 조회
+        top_paths = [doc["path"] for _, doc in top]
+        contents = self.get_contents_by_paths(top_paths)
+        return [
+            {"score": s, **doc, "content": contents.get(doc["path"], "")}
+            for s, doc in top
+        ]
+
+    def get_contents_by_paths(self, paths: list[str]) -> dict[str, str]:
+        """경로 목록에 해당하는 문서의 content를 한 번에 조회한다.
+
+        Args:
+            paths: vault 기준 상대 경로 목록
+        Returns:
+            {path: content} 딕셔너리
+        """
+        if not paths:
+            return {}
+        with self._driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.path IN $paths
+                RETURN d.path AS path, d.content AS content
+                """,
+                paths=paths,
+            ).data()
+        return {row["path"]: row["content"] or "" for row in rows}
+
+    def load_embeddings_cache(
+        self, para_filter: list[str] | None = None
+    ) -> list[dict]:
+        """전체 문서 임베딩을 한 번에 로드한다 (relink 배치용).
+
+        content를 제외하고 임베딩과 메타데이터만 반환한다.
+        Archives는 항상 제외된다.
+
+        Args:
+            para_filter: 로드할 PARA 카테고리 목록 (None이면 Archives 외 전체)
+        Returns:
+            {"id", "title", "path", "para_category", "tags", "embedding"} 목록
+        """
+        categories = (
+            [c for c in para_filter if c != "Archives"]
+            if para_filter
+            else None
+        )
+        with self._driver.session() as session:
+            if categories:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.embedding IS NOT NULL
+                      AND d.para_category IN $categories
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.para_category AS para_category, d.tags AS tags,
+                           d.embedding AS embedding
+                    """,
+                    categories=categories,
+                ).data()
+            else:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.embedding IS NOT NULL
+                      AND d.para_category <> 'Archives'
+                    RETURN d.id AS id, d.title AS title, d.path AS path,
+                           d.para_category AS para_category, d.tags AS tags,
+                           d.embedding AS embedding
+                    """
+                ).data()
+        return rows
+
+    def get_graph_proximity_batch(
+        self,
+        src_path: str,
+        cand_paths: list[str],
+    ) -> dict[str, dict]:
+        """src_path와 여러 후보 문서 간 근접성을 단일 쿼리로 계산한다.
+
+        Args:
+            src_path: 기준 문서 경로
+            cand_paths: 비교할 후보 문서 경로 목록
+        Returns:
+            {cand_path: {"shared_tags": int, "shared_links": int}} 딕셔너리
+        """
+        if not cand_paths:
+            return {}
+        with self._driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (src:Document {path: $src})
+                MATCH (cand:Document) WHERE cand.path IN $cands
+                OPTIONAL MATCH (src)-[:TAGGED_WITH]->(t:Tag)<-[:TAGGED_WITH]-(cand)
+                WITH src, cand, count(DISTINCT t) AS shared_tags
+                OPTIONAL MATCH (src)-[:LINKS_TO]->(x:Document)<-[:LINKS_TO]-(cand)
+                RETURN cand.path AS path,
+                       shared_tags,
+                       count(DISTINCT x) AS shared_links
+                """,
+                src=str(src_path),
+                cands=cand_paths,
+            ).data()
+        return {
+            row["path"]: {
+                "shared_tags": row["shared_tags"] or 0,
+                "shared_links": row["shared_links"] or 0,
+            }
+            for row in rows
+        }
 
     # ------------------------------------------------------------------
     # Sync 메타데이터
