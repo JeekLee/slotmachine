@@ -30,11 +30,11 @@ _TAG_BOOST_MAX = 0.20
 _LINK_BOOST_UNIT = 0.03
 _LINK_BOOST_MAX = 0.15
 
-# 링크 생태계에서 완전 격리되는 PARA 카테고리 (후보에서 제외)
-_ISOLATED_CATEGORIES = {"Archives"}
+# 링크 생태계에서 완전 격리되는 PARA 카테고리 (후보에서 제외 — 다른 문서에서 참조 불가)
+_ISOLATED_CATEGORIES = {"Archives", "Areas"}
 
 # 링크 삽입이 금지된 PARA 카테고리 (피벗 문서에 wikilink를 쓰지 않음)
-_NO_LINK_CATEGORIES = {"Areas"}
+_NO_LINK_CATEGORIES = {"Inbox"}
 
 # wikilink 파싱 패턴:  [[제목]]  또는  [[제목|표시텍스트]]
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
