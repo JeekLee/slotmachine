@@ -280,7 +280,7 @@ def insert_wiki_links(
             new_content = content.rstrip() + "\n" + link_lines + "\n"
     else:
         # Related 섹션이 없으면 파일 끝에 새로 추가
-        new_content = content.rstrip() + "\n\n## Related\n\n" + link_lines + "\n"
+        new_content = content.rstrip() + "\n\n## 연관 문서\n\n" + link_lines + "\n"
 
     file_path.write_text(new_content, encoding="utf-8")
     logger.info("위키링크 %d개 삽입: %s", len(new_titles), rel_path)
