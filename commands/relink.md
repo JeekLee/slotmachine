@@ -36,14 +36,20 @@ Full 모드인 경우, 실행 전 안내 메시지를 출력한다:
 ```json
 {
   "mode": "delta",
-  "para_filter": null
+  "para_filter": null,
+  "limit": 20,
+  "offset": 0
 }
 ```
 
 반환값:
-- `pivots_found`: 피벗 문서 수
-- `pivots_with_candidates`: 후보가 발견된 피벗 수
-- `results`: 피벗별 후보 목록
+- `total_pivots`: 전체 피벗 문서 수
+- `has_more`: 다음 페이지 존재 여부
+- `pivots_with_candidates`: 이번 페이지에서 후보가 발견된 피벗 수
+- `results`: 피벗별 후보 목록 (title, final_score)
+
+`has_more`가 true이면 offset을 `offset + limit`으로 올려 다음 페이지를 요청한다.
+사용자에게 페이지 진행 상황을 표시하며 승인을 받은 뒤 다음 페이지로 넘어간다.
 
 ### 3단계 — 결과 표시
 

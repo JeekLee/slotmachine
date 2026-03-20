@@ -715,20 +715,26 @@ def apply_links(
 def relink(
     mode: str = "delta",
     para_filter: list[str] | None = None,
+    limit: int = 20,
+    offset: int = 0,
 ) -> dict:
     """링크 재판단을 실행한다.
 
     신규/변경 문서를 피벗으로 관련 문서를 탐색하고 위키링크 후보를 반환한다.
     Archives 카테고리는 피벗 및 후보에서 자동 제외된다.
     임베딩은 GraphDB에 저장된 벡터를 재사용하므로 임베딩 API 호출이 없다.
+    결과가 많으면 offset/limit으로 페이지네이션한다.
 
     Args:
         mode: "delta" — links_evaluated_at 기준 변경 문서만 (기본)
               "all"   — Archives 제외 전체 vault
         para_filter: 피벗 범위를 제한할 PARA 카테고리 목록
                      예: ["Projects", "Resources"] — None이면 Archives 외 전체
+        limit: 한 번에 처리할 최대 피벗 수 (기본 20)
+        offset: 건너뛸 피벗 수 (페이지네이션용, 기본 0)
     Returns:
         피벗 문서별 링크 후보 목록. 각 항목을 apply_links로 삽입한다.
+        has_more가 true면 offset을 올려 다음 페이지를 요청한다.
     """
     settings = get_settings()
     db = _make_db(settings)
@@ -737,18 +743,25 @@ def relink(
     from slotmachine.linker.linker import find_related
 
     if mode == "all":
-        pivot_docs = db.get_all_linkable_documents(para_filter)
+        all_pivot_docs = db.get_all_linkable_documents(para_filter)
     else:
-        pivot_docs = db.get_delta_documents(para_filter)
+        all_pivot_docs = db.get_delta_documents(para_filter)
 
-    if not pivot_docs:
+    total_pivots = len(all_pivot_docs)
+
+    if total_pivots == 0:
         db.close()
         return {
             "mode": mode,
-            "pivots_found": 0,
+            "total_pivots": 0,
+            "has_more": False,
             "results": [],
             "note": "재판단 대상 문서가 없습니다. vault가 최신 상태입니다.",
         }
+
+    # 페이지네이션 적용
+    pivot_docs = all_pivot_docs[offset: offset + limit]
+    has_more = (offset + limit) < total_pivots
 
     # 임베딩 1회 로드 — 피벗 수에 관계없이 Neo4j 풀스캔 1회로 고정 (F4-12-02)
     embeddings_cache = db.load_embeddings_cache(para_filter)
@@ -768,9 +781,7 @@ def relink(
                 "candidates": [
                     {
                         "title": c.title,
-                        "path": c.path,
-                        "final_score": c.final_score,
-                        "para_category": c.para_category,
+                        "final_score": round(c.final_score, 2),
                     }
                     for c in candidates
                 ],
@@ -780,7 +791,10 @@ def relink(
 
     return {
         "mode": mode,
-        "pivots_found": len(pivot_docs),
+        "total_pivots": total_pivots,
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
         "pivots_with_candidates": len(results),
         "results": results,
         "note": (
