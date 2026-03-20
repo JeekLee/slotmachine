@@ -771,7 +771,6 @@ def relink(
                         "path": c.path,
                         "final_score": c.final_score,
                         "para_category": c.para_category,
-                        "excerpt": c.excerpt,
                     }
                     for c in candidates
                 ],
