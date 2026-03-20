@@ -1,6 +1,6 @@
-# Sprint 6
+# Sprint 7
 기간: 착수일 기준 1주
-목표: Phase 5 마무리 (F5-07) + Phase 6 Polish — 통합 테스트, README, 패키징
+목표: 링크 시스템 고도화 — relink 커맨드, Archives 격리, threshold 조정, dead link 정리
 
 ---
 
@@ -15,6 +15,29 @@ _(없음)_
 _(없음)_
 
 ---
+
+## Done
+
+- [x] [F4-09] Archives 링크 생태계 완전 격리 — `find_related` 후보 필터, threshold 기본값 0.65 적용 | developer
+- [x] [F4-10] threshold 기본값 0.5 → 0.65 — `server.py`, `linker.py`, `commands/link.md` 반영 | developer
+- [x] [F4-08-01] Document 노드 `links_evaluated_at` 타임스탬프 — `apply_links` 실행 후 자동 갱신 | developer
+- [x] [F4-08-02] Delta 모드: `get_delta_documents` — `links_evaluated_at IS NULL OR updated_at > links_evaluated_at` | developer
+- [x] [F4-08-03] `relink` MCP 툴 — delta/all 모드, para_filter 지원, 단방향 링크 후보 반환 | developer
+- [x] [F4-08-06] `/slotmachine:relink` 슬래시 커맨드 — `commands/relink.md`, `.claude/commands/relink.md` | developer
+- [x] [F2-09] sync 삭제 시 `remove_wikilinks_in_vault` — 다른 문서의 `[[삭제된_제목]]` 제거 | developer
+- [x] [F3-10] classify rename 시 `replace_wikilinks_in_vault` — `[[구_제목]]` → `[[새_제목]]` 일괄 교체 | developer
+
+---
+
+## 블로커 / 이슈
+
+_(발생 시 기록)_
+
+---
+
+# Sprint 6 (완료)
+기간: 착수일 기준 1주
+목표: Phase 5 마무리 (F5-07) + Phase 6 Polish — 통합 테스트, README, 패키징
 
 ## Done
 

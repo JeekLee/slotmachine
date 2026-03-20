@@ -126,8 +126,21 @@ def incremental_sync(
         if _is_hidden(path, vault_path):
             continue
         try:
+            # 삭제 전 제목 조회 — dead link 정리(F2-09)에 사용
+            try:
+                rel_path = path.relative_to(vault_path).as_posix()
+            except ValueError:
+                rel_path = path.as_posix()
+            doc_data = db.get_document(rel_path)
+            old_title = doc_data.get("title") if doc_data else None
+
             db.delete_document(path, vault_path=vault_path)
             result.deleted += 1
+
+            # 다른 문서 본문의 [[old_title]] 위키링크 제거 (F2-09)
+            if old_title:
+                from slotmachine.linker.linker import remove_wikilinks_in_vault
+                remove_wikilinks_in_vault(vault_path, old_title)
         except Exception as exc:
             result.failed += 1
             result.errors.append((path, str(exc)))

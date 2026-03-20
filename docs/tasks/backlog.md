@@ -19,6 +19,7 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 - [ ] [F2-06] `slotmachine status` 커맨드 구현 | developer
 - [ ] [F2-07] 오류 처리 및 재시도 로직 (tenacity) | developer
 - [ ] [F2-08] push 시나리오 통합 테스트 | developer
+- [ ] [F2-09] sync 중 삭제 감지 시 다른 문서 본문의 `[[삭제된_제목]]` 위키링크 제거 | developer
 
 ## Phase 3 — SlotMachine Core (F3)
 
@@ -30,6 +31,7 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 - [ ] [F3-06] 파일 이동 + 자동 git commit | developer
 - [ ] [F3-07] 확신도 낮은 문서 별도 처리 플로우 | developer
 - [ ] [F3-08] classify_inbox 중 embedding 실패 → 맥락 분할 제안 → 승인 → 분할 문서로 PARA 분류 진행 + 원본 삭제 | developer ← Sprint 6
+- [ ] [F3-10] F3-09 rename 실행 시 다른 문서 본문의 `[[구_제목]]` → `[[새_제목]]` 일괄 교체 | developer
 
 ## Phase 4 — Knowledge Graph (F4) ✅ Sprint 5 완료
 
@@ -38,6 +40,17 @@ PRD 기준 전체 Feature 목록. Sprint 계획 시 여기서 꺼내 sprint-curr
 - [x] [F4-03] 관련도 임계값 기반 후보 필터링 | developer
 - [x] [F4-04] `suggest_links` MCP 툴 + 위키링크 삽입 위치 추천 | developer
 - [x] [F4-05] 중복 링크 방지 및 양방향 링크 처리 | developer
+- [ ] [F4-09] Archives 카테고리를 링크 후보·relink 피벗·역방향 삽입 대상에서 제외 | developer
+- [ ] [F4-10] threshold 기본값 0.5 → 0.65 변경 + TAG_BOOST_UNIT 적정성 검토 | developer
+- [ ] [F4-11] 링크 거절 기억 — 사용자가 거절한 쌍을 IGNORED_PAIR 엣지로 저장하여 재제안 방지 | developer (Could)
+- [ ] [F4-08-01] Document 노드에 `links_evaluated_at` 타임스탬프 추가 — `apply_links` 실행 시 자동 갱신 | developer
+- [ ] [F4-08-02] Delta 모드: `links_evaluated_at` 기준 재판단 대상 문서 선별 로직 | developer
+- [ ] [F4-08-03] 피벗 문서 기준 `find_related` 실행 → 양방향 링크 후보 생성 | developer
+- [ ] [F4-08-04] Full 모드: 대상 수 / 예상 시간 표시 + 확인 인터랙션 | developer
+- [ ] [F4-08-05] 배치 결과 테이블 표시 + 전체 승인/개별 수정/취소 인터랙션 | developer
+- [ ] [F4-08-06] `/slotmachine:relink` 슬래시 커맨드 정의 | developer
+- [ ] [F4-08-07] `--para` 범위 지정 옵션 | developer
+- [ ] [F4-08-08] Full 모드 진행률 표시 | developer
 
 ## Phase 5 — Second Brain RAG (F5) ✅ Sprint 6 완료
 

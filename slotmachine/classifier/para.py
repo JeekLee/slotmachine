@@ -259,9 +259,15 @@ def apply_classification(
                 counter += 1
 
         try:
+            old_stem = src.stem
             shutil.move(str(src), str(dst))
             logger.info("이동: %s → %s", src.name, target_folder)
             result.moved += 1
+
+            # 파일명이 바뀐 경우 다른 문서의 [[구_제목]] → [[새_제목]] 교체 (F3-10)
+            if dst.stem != old_stem:
+                from slotmachine.linker.linker import replace_wikilinks_in_vault
+                replace_wikilinks_in_vault(vault_path, old_stem, dst.stem)
         except Exception as exc:
             result.errors.append(f"{src.name}: {exc}")
             result.skipped += 1

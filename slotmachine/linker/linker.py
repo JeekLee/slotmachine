@@ -30,6 +30,9 @@ _TAG_BOOST_MAX = 0.20
 _LINK_BOOST_UNIT = 0.03
 _LINK_BOOST_MAX = 0.15
 
+# 링크 생태계에서 완전 격리되는 PARA 카테고리
+_ISOLATED_CATEGORIES = {"Archives"}
+
 # wikilink 파싱 패턴:  [[제목]]  또는  [[제목|표시텍스트]]
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 
@@ -73,7 +76,7 @@ def find_related(
     *,
     embedding_provider=None,
     top_k: int = 10,
-    threshold: float = 0.5,
+    threshold: float = 0.65,
 ) -> list[LinkCandidate]:
     """대상 문서와 관련된 문서 후보를 반환한다.
 
@@ -125,6 +128,8 @@ def find_related(
         if cand_title in already_linked:
             continue
         if cand_path == target_path:
+            continue
+        if row.get("para_category") in _ISOLATED_CATEGORIES:
             continue
 
         vector_score = float(row.get("score") or 0.0)
@@ -232,3 +237,82 @@ def insert_wiki_links(
     file_path.write_text(new_content, encoding="utf-8")
     logger.info("위키링크 %d개 삽입: %s", len(new_titles), rel_path)
     return new_content
+
+
+# ──────────────────────────────────────────
+# Vault-wide 위키링크 정리 (F2-09, F3-10)
+# ──────────────────────────────────────────
+
+# 리스트 아이템 형태의 위키링크 한 줄 전체를 매칭: "- [[title]]" 또는 "  - [[title|alias]]"
+_LIST_LINK_RE_TEMPLATE = r"^[ \t]*-[ \t]*\[\[{title}(?:\|[^\]]+)?\]\][ \t]*\n?"
+
+
+def remove_wikilinks_in_vault(vault_path: Path, title: str) -> list[str]:
+    """vault 전체 .md 파일에서 [[title]] 위키링크를 제거한다.
+
+    리스트 아이템(`- [[title]]`) 형태의 줄 전체를 제거한다.
+    인라인 참조는 건드리지 않는다.
+
+    Args:
+        vault_path: vault 루트 절대 경로
+        title: 제거할 위키링크 제목
+    Returns:
+        수정된 파일의 vault 기준 상대 경로 목록
+    """
+    line_re = re.compile(
+        _LIST_LINK_RE_TEMPLATE.format(title=re.escape(title)),
+        re.MULTILINE,
+    )
+    modified: list[str] = []
+    for md_file in vault_path.rglob("*.md"):
+        if any(part.startswith(".") for part in md_file.parts):
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8")
+            if f"[[{title}]]" not in content and f"[[{title}|" not in content:
+                continue
+            new_content = line_re.sub("", content)
+            if new_content != content:
+                md_file.write_text(new_content, encoding="utf-8")
+                modified.append(str(md_file.relative_to(vault_path)))
+        except Exception as exc:
+            logger.warning("위키링크 제거 실패 — %s: %s", md_file.name, exc)
+    if modified:
+        logger.info("[[%s]] 제거 완료: %d개 파일", title, len(modified))
+    return modified
+
+
+def replace_wikilinks_in_vault(
+    vault_path: Path, old_title: str, new_title: str
+) -> list[str]:
+    """vault 전체 .md 파일에서 [[old_title]] → [[new_title]]로 교체한다.
+
+    [[old_title|alias]] 형태도 [[new_title|alias]]로 교체된다.
+
+    Args:
+        vault_path: vault 루트 절대 경로
+        old_title: 교체할 기존 위키링크 제목
+        new_title: 교체할 새 위키링크 제목
+    Returns:
+        수정된 파일의 vault 기준 상대 경로 목록
+    """
+    pattern = re.compile(r"\[\[" + re.escape(old_title) + r"(\|[^\]]+)?\]\]")
+    modified: list[str] = []
+    for md_file in vault_path.rglob("*.md"):
+        if any(part.startswith(".") for part in md_file.parts):
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8")
+            if f"[[{old_title}]]" not in content and f"[[{old_title}|" not in content:
+                continue
+            new_content = pattern.sub(
+                lambda m: f"[[{new_title}{m.group(1) or ''}]]", content
+            )
+            if new_content != content:
+                md_file.write_text(new_content, encoding="utf-8")
+                modified.append(str(md_file.relative_to(vault_path)))
+        except Exception as exc:
+            logger.warning("위키링크 교체 실패 — %s: %s", md_file.name, exc)
+    if modified:
+        logger.info("[[%s]] → [[%s]] 교체 완료: %d개 파일", old_title, new_title, len(modified))
+    return modified

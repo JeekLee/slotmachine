@@ -563,7 +563,7 @@ def apply_split(
 def suggest_links(
     path: str,
     top_k: int = 10,
-    threshold: float = 0.5,
+    threshold: float = 0.65,
 ) -> dict:
     """대상 문서와 관련된 문서를 탐색하고 위키링크 후보를 반환한다.
 
@@ -695,11 +695,95 @@ def apply_links(
             "error": f"git 오류: {exc}",
         }
 
+    # links_evaluated_at 갱신 (F4-08-01)
+    try:
+        db = _make_db(settings)
+        db.update_links_evaluated_at(path)
+        db.close()
+    except Exception:
+        pass  # timestamp 갱신 실패는 치명적 오류가 아니므로 무시
+
     return {
         "success": True,
         "inserted": inserted_count,
         "commit_hash": commit_hash[:8],
         "path": path,
+    }
+
+
+@mcp.tool()
+def relink(
+    mode: str = "delta",
+    para_filter: list[str] | None = None,
+) -> dict:
+    """링크 재판단을 실행한다.
+
+    신규/변경 문서를 피벗으로 관련 문서를 탐색하고 위키링크 후보를 반환한다.
+    Archives 카테고리는 피벗 및 후보에서 자동 제외된다.
+    임베딩은 GraphDB에 저장된 벡터를 재사용하므로 임베딩 API 호출이 없다.
+
+    Args:
+        mode: "delta" — links_evaluated_at 기준 변경 문서만 (기본)
+              "all"   — Archives 제외 전체 vault
+        para_filter: 피벗 범위를 제한할 PARA 카테고리 목록
+                     예: ["Projects", "Resources"] — None이면 Archives 외 전체
+    Returns:
+        피벗 문서별 링크 후보 목록. 각 항목을 apply_links로 삽입한다.
+    """
+    settings = get_settings()
+    db = _make_db(settings)
+    embedding_provider = _make_embedding_provider(settings)
+
+    from slotmachine.linker.linker import find_related
+
+    if mode == "all":
+        pivot_docs = db.get_all_linkable_documents(para_filter)
+    else:
+        pivot_docs = db.get_delta_documents(para_filter)
+
+    if not pivot_docs:
+        db.close()
+        return {
+            "mode": mode,
+            "pivots_found": 0,
+            "results": [],
+            "note": "재판단 대상 문서가 없습니다. vault가 최신 상태입니다.",
+        }
+
+    results = []
+    for doc in pivot_docs:
+        candidates = find_related(
+            doc["path"],
+            db,
+            embedding_provider=embedding_provider,
+        )
+        if candidates:
+            results.append({
+                "pivot_path": doc["path"],
+                "pivot_title": doc["title"],
+                "candidates": [
+                    {
+                        "title": c.title,
+                        "path": c.path,
+                        "final_score": c.final_score,
+                        "para_category": c.para_category,
+                        "excerpt": c.excerpt,
+                    }
+                    for c in candidates
+                ],
+            })
+
+    db.close()
+
+    return {
+        "mode": mode,
+        "pivots_found": len(pivot_docs),
+        "pivots_with_candidates": len(results),
+        "results": results,
+        "note": (
+            "각 pivot_path에 대해 apply_links 툴로 원하는 링크를 삽입하세요. "
+            "apply_links 실행 후 links_evaluated_at이 자동 갱신됩니다."
+        ),
     }
 
 

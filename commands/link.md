@@ -22,7 +22,7 @@ allowed-tools: mcp__slotmachine__suggest_links, mcp__slotmachine__apply_links
 {
   "path": "대상 문서 상대 경로",
   "top_k": 10,
-  "threshold": 0.5
+  "threshold": 0.65
 }
 ```
 

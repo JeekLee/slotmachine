@@ -396,6 +396,97 @@ class GraphDB:
             ).data()
         return [row["title"] for row in rows]
 
+    def update_links_evaluated_at(self, path: str) -> None:
+        """문서의 links_evaluated_at 타임스탬프를 현재 시각으로 갱신한다.
+
+        apply_links 실행 후 호출해 재판단 기준 시각을 기록한다.
+
+        Args:
+            path: vault 기준 문서 상대 경로
+        """
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (d:Document {path: $path}) SET d.links_evaluated_at = datetime()",
+                path=str(path),
+            )
+
+    def get_delta_documents(
+        self, para_filter: list[str] | None = None
+    ) -> list[dict]:
+        """링크 재판단 대상 문서(피벗 후보)를 반환한다.
+
+        links_evaluated_at이 없거나 updated_at보다 이전인 문서만 반환한다.
+        Archives는 항상 제외된다.
+
+        Args:
+            para_filter: 반환할 PARA 카테고리 목록 (None이면 Archives 외 전체)
+        Returns:
+            {"title": str, "path": str} 목록
+        """
+        categories = (
+            [c for c in para_filter if c != "Archives"]
+            if para_filter
+            else None
+        )
+        with self._driver.session() as session:
+            if categories:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.para_category IN $categories
+                      AND (d.links_evaluated_at IS NULL
+                           OR d.updated_at > d.links_evaluated_at)
+                    RETURN d.title AS title, d.path AS path
+                    """,
+                    categories=categories,
+                ).data()
+            else:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.para_category <> 'Archives'
+                      AND (d.links_evaluated_at IS NULL
+                           OR d.updated_at > d.links_evaluated_at)
+                    RETURN d.title AS title, d.path AS path
+                    """
+                ).data()
+        return rows
+
+    def get_all_linkable_documents(
+        self, para_filter: list[str] | None = None
+    ) -> list[dict]:
+        """Archives를 제외한 전체 문서를 반환한다 (Full relink용).
+
+        Args:
+            para_filter: 반환할 PARA 카테고리 목록 (None이면 Archives 외 전체)
+        Returns:
+            {"title": str, "path": str} 목록
+        """
+        categories = (
+            [c for c in para_filter if c != "Archives"]
+            if para_filter
+            else None
+        )
+        with self._driver.session() as session:
+            if categories:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.para_category IN $categories
+                    RETURN d.title AS title, d.path AS path
+                    """,
+                    categories=categories,
+                ).data()
+            else:
+                rows = session.run(
+                    """
+                    MATCH (d:Document)
+                    WHERE d.para_category <> 'Archives'
+                    RETURN d.title AS title, d.path AS path
+                    """
+                ).data()
+        return rows
+
     def upsert_related_edges(
         self,
         src_path: Path | str,
