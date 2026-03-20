@@ -30,13 +30,16 @@ _TAG_BOOST_MAX = 0.20
 _LINK_BOOST_UNIT = 0.03
 _LINK_BOOST_MAX = 0.15
 
-# 링크 생태계에서 완전 격리되는 PARA 카테고리
+# 링크 생태계에서 완전 격리되는 PARA 카테고리 (후보에서 제외)
 _ISOLATED_CATEGORIES = {"Archives"}
+
+# 링크 삽입이 금지된 PARA 카테고리 (피벗 문서에 wikilink를 쓰지 않음)
+_NO_LINK_CATEGORIES = {"Areas"}
 
 # wikilink 파싱 패턴:  [[제목]]  또는  [[제목|표시텍스트]]
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 
-# "Related" 섹션 헤딩 패턴 (한/영 통합)
+# "Related" 섹션 헤딩 패턴 (한/영 통합, 기본 폴백용)
 _RELATED_HEADING_RE = re.compile(
     r"^##\s+(?:Related|관련|연관|See\s+Also|Links|링크)",
     re.IGNORECASE | re.MULTILINE,
@@ -44,6 +47,23 @@ _RELATED_HEADING_RE = re.compile(
 
 # 다음 h2 헤딩 탐색 패턴
 _NEXT_H2_RE = re.compile(r"^\s*##\s", re.MULTILINE)
+
+# 카테고리별 링크 섹션 설정
+# heading_re: 기존 섹션을 탐색하는 패턴
+# next_re: 섹션 끝을 탐색하는 패턴 (h2 또는 h3)
+# default: 섹션이 없을 때 새로 생성할 헤딩 텍스트
+_CATEGORY_LINK_SECTION: dict[str, dict] = {
+    "Projects": {
+        "heading_re": re.compile(r"^###\s+연관\s*프로젝트", re.IGNORECASE | re.MULTILINE),
+        "next_re": re.compile(r"^\s*#{2,3}\s", re.MULTILINE),
+        "default": "### 연관 프로젝트",
+    },
+    "Resources": {
+        "heading_re": re.compile(r"^###\s+참고", re.IGNORECASE | re.MULTILINE),
+        "next_re": re.compile(r"^\s*#{2,3}\s", re.MULTILINE),
+        "default": "### 참고",
+    },
+}
 
 
 # ──────────────────────────────────────────
@@ -235,22 +255,45 @@ def insert_wiki_links(
     vault_path: Path,
     rel_path: str,
     link_titles: list[str],
+    para_category: str = "",
 ) -> str:
     """승인된 위키링크를 문서에 삽입하고 수정된 내용을 반환한다.
 
+    para_category에 따라 삽입 위치와 섹션 헤딩이 달라진다.
+    - Projects  : ### 연관 프로젝트 섹션
+    - Resources : ### 참고 섹션
+    - Areas     : 삽입하지 않음 (원본 반환)
+    - 기타      : ## 연관 문서 섹션 (기본)
+
     기존 위키링크 중복은 자동으로 제외한다.
-    문서에 '## Related' (또는 관련/연관/Links) 섹션이 있으면 해당 섹션 끝에 추가하고,
-    없으면 파일 끝에 새 섹션을 만든다.
+    해당 섹션이 있으면 섹션 끝에 추가하고, 없으면 파일 끝에 새로 생성한다.
 
     Args:
         vault_path: vault 루트 절대 경로
         rel_path: vault 기준 대상 문서 상대 경로
         link_titles: 삽입할 위키링크 제목 목록 (승인된 것만)
+        para_category: 대상 문서의 PARA 카테고리 (빈 문자열이면 기본 동작)
     Returns:
-        수정된 파일 전체 내용. 변경 없으면 원본 내용 반환.
+        수정된 파일 전체 내용. 변경 없거나 삽입 금지 카테고리면 원본 내용 반환.
     """
     file_path = vault_path / rel_path
     content = file_path.read_text(encoding="utf-8")
+
+    # Areas는 링크 삽입 금지
+    if para_category in _NO_LINK_CATEGORIES:
+        logger.debug("링크 삽입 제외 카테고리(%s): %s", para_category, rel_path)
+        return content
+
+    # 카테고리별 섹션 설정 선택
+    cfg = _CATEGORY_LINK_SECTION.get(para_category)
+    if cfg:
+        heading_re = cfg["heading_re"]
+        next_re = cfg["next_re"]
+        default_heading = cfg["default"]
+    else:
+        heading_re = _RELATED_HEADING_RE
+        next_re = _NEXT_H2_RE
+        default_heading = "## 연관 문서"
 
     # 이미 존재하는 링크 제외
     existing = get_wikilinks_from_content(content)
@@ -261,14 +304,14 @@ def insert_wiki_links(
 
     link_lines = "\n".join(f"- [[{t}]]" for t in new_titles)
 
-    # Related 섹션 탐색
-    match = _RELATED_HEADING_RE.search(content)
+    # 섹션 탐색
+    match = heading_re.search(content)
     if match:
-        # 섹션 끝(다음 h2 또는 EOF) 바로 앞에 삽입
+        # 섹션 끝(다음 헤딩 또는 EOF) 바로 앞에 삽입
         after_heading = content[match.end():]
-        next_h2 = _NEXT_H2_RE.search(after_heading)
-        if next_h2:
-            insert_pos = match.end() + next_h2.start()
+        next_section = next_re.search(after_heading)
+        if next_section:
+            insert_pos = match.end() + next_section.start()
             new_content = (
                 content[:insert_pos].rstrip()
                 + "\n"
@@ -279,8 +322,8 @@ def insert_wiki_links(
         else:
             new_content = content.rstrip() + "\n" + link_lines + "\n"
     else:
-        # Related 섹션이 없으면 파일 끝에 새로 추가
-        new_content = content.rstrip() + "\n\n## 연관 문서\n\n" + link_lines + "\n"
+        # 섹션이 없으면 파일 끝에 새로 추가
+        new_content = content.rstrip() + f"\n\n{default_heading}\n\n" + link_lines + "\n"
 
     file_path.write_text(new_content, encoding="utf-8")
     logger.info("위키링크 %d개 삽입: %s", len(new_titles), rel_path)

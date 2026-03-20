@@ -657,10 +657,30 @@ def apply_links(
             "error": f"파일 없음: {path}",
         }
 
+    # 대상 문서의 para_category 조회 (섹션 헤딩 결정용)
+    para_category = ""
+    try:
+        db = _make_db(settings)
+        doc_data = db.get_document(path)
+        if doc_data:
+            para_category = doc_data.get("para_category", "")
+        db.close()
+    except Exception:
+        pass  # 조회 실패 시 기본 동작(## 연관 문서)으로 폴백
+
+    from slotmachine.linker.linker import _NO_LINK_CATEGORIES
+    if para_category in _NO_LINK_CATEGORIES:
+        return {
+            "success": False,
+            "inserted": 0,
+            "commit_hash": "",
+            "error": f"{para_category} 카테고리 문서는 링크 삽입이 지원되지 않습니다.",
+        }
+
     before_links = get_wikilinks_from_content(original_content)
 
     try:
-        new_content = insert_wiki_links(settings.vault_path, path, link_titles)
+        new_content = insert_wiki_links(settings.vault_path, path, link_titles, para_category)
     except Exception as exc:
         return {
             "success": False,
@@ -742,10 +762,15 @@ def relink(
 
     from slotmachine.linker.linker import find_related
 
+    from slotmachine.linker.linker import _NO_LINK_CATEGORIES
+
     if mode == "all":
         all_pivot_docs = db.get_all_linkable_documents(para_filter)
     else:
         all_pivot_docs = db.get_delta_documents(para_filter)
+
+    # 링크 삽입 금지 카테고리(Areas 등) 피벗 제외
+    all_pivot_docs = [d for d in all_pivot_docs if d.get("para_category") not in _NO_LINK_CATEGORIES]
 
     total_pivots = len(all_pivot_docs)
 
