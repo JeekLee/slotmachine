@@ -180,7 +180,7 @@ def find_related(
         content = row.get("content", "")
         candidates.append(
             LinkCandidate(
-                title=row.get("title", ""),
+                title=Path(cand_path).stem,
                 path=cand_path,
                 vector_score=vector_score,
                 proximity_boost=round(boost, 4),

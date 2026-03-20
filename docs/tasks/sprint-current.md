@@ -15,6 +15,7 @@ _(없음)_
 - [x] [F4-12-01] `search_similar_by_embedding` content 분리 — 유사도 계산 시 content 제외, 상위 K 선별 후 별도 조회 | developer
 - [x] [F4-12-02] relink 배치 유사도 계산 — `load_embeddings_cache` 1회 로드 후 전체 피벗 일괄 처리 | developer
 - [x] [F4-12-03] `get_graph_proximity_batch` — 피벗별 개별 쿼리 → 단일 배치 쿼리 | developer
+- [x] [F4-13] 위키링크 삽입 시 파일명 stem 사용 — `LinkCandidate.title`을 H1/frontmatter title 대신 `Path(cand_path).stem`으로 변경 | developer
 
 ---
 
