@@ -1,6 +1,6 @@
 """INBOX 분류 보조 — 기존 vault 문서와의 유사도 매칭.
 
-INBOX 문서를 임베딩하고 vault 전체 임베딩과 코사인 유사도로 top-k 후보를 추출한다.
+INBOX 문서를 임베딩하고 GraphDB의 벡터 인덱스로 top-k 후보를 추출한다.
 태그 교집합 보너스를 더해 최종 점수를 산출하고, 카테고리별 가중 점수 분포로
 Claude Code의 분류 판단에 힌트를 제공한다.
 
@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 _TAG_BOOST_UNIT = 0.05
 _TAG_BOOST_MAX = 0.20
 
+# Archives는 항상 분류 후보에서 제외 (linker._ISOLATED_CATEGORIES와 정합).
+# Areas는 INBOX 분류 시점엔 의미있는 후보가 될 수 있으므로 포함한다.
+_DEFAULT_CANDIDATE_CATEGORIES = ["Projects", "Areas", "Resources"]
+
 
 @dataclass
 class SimilarDocument:
@@ -32,43 +36,32 @@ class SimilarDocument:
     tags: list[str] = field(default_factory=list)
 
 
-def _cosine(a, b) -> float:
-    import numpy as np
-
-    av = np.array(a, dtype=np.float32)
-    bv = np.array(b, dtype=np.float32)
-    a_norm = float(np.linalg.norm(av))
-    b_norm = float(np.linalg.norm(bv))
-    if a_norm == 0 or b_norm == 0:
-        return 0.0
-    return float(np.dot(av, bv) / (a_norm * b_norm))
-
-
 def find_similar_for_inbox(
     inbox_text: str,
     inbox_tags: list[str],
     embedding_provider,
-    embeddings_cache: list[dict],
+    db,
     *,
     top_k: int = 3,
     threshold: float = 0.5,
 ) -> list[SimilarDocument]:
     """INBOX 문서와 유사한 기존 vault 문서 top-k를 반환한다.
 
-    벡터 유사도(코사인) + 태그 교집합 보너스로 점수를 산출한다.
-    Archives는 embeddings_cache 로드 시점에서 이미 제외돼 들어온다고 가정한다.
+    Neo4j 벡터 인덱스로 후보 풀(top_k * 3)을 받고, Python에서 태그 교집합
+    보너스를 더해 최종 score 기준 top-k로 추린다. 인덱스 미존재 시
+    db.search_similar_by_embedding이 자동으로 풀스캔 폴백한다.
 
     Args:
         inbox_text: INBOX 문서의 임베딩 입력 텍스트 (보통 raw_content)
         inbox_tags: INBOX 문서의 태그 목록
         embedding_provider: 임베딩 프로바이더 (None이면 빈 결과)
-        embeddings_cache: db.load_embeddings_cache() 결과
+        db: GraphDB 인스턴스 (None이면 빈 결과)
         top_k: 반환할 최대 후보 수
         threshold: 최소 final_score 임계값
     Returns:
-        score 내림차순 SimilarDocument 목록. 임베딩 실패 시 빈 리스트.
+        score 내림차순 SimilarDocument 목록. 임베딩/검색 실패 시 빈 리스트.
     """
-    if not embedding_provider or not embeddings_cache or not inbox_text.strip():
+    if embedding_provider is None or db is None or not inbox_text.strip():
         return []
 
     from slotmachine.sync.embedding import embed_one_safe
@@ -77,13 +70,20 @@ def find_similar_for_inbox(
     if embedding is None:
         return []
 
+    try:
+        rows = db.search_similar_by_embedding(
+            embedding,
+            top_k=top_k * 3,
+            para_filter=_DEFAULT_CANDIDATE_CATEGORIES,
+        )
+    except Exception as exc:
+        logger.warning("유사도 검색 실패: %s", exc)
+        return []
+
     inbox_tag_set = {t.lower() for t in inbox_tags or []}
     candidates: list[SimilarDocument] = []
-    for row in embeddings_cache:
-        emb = row.get("embedding")
-        if not emb:
-            continue
-        vector_score = _cosine(embedding, emb)
+    for row in rows:
+        vector_score = float(row.get("score") or 0.0)
         tags = list(row.get("tags") or [])
         shared = sum(1 for t in tags if t.lower() in inbox_tag_set)
         boost = min(shared * _TAG_BOOST_UNIT, _TAG_BOOST_MAX)

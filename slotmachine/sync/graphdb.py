@@ -60,10 +60,18 @@ class GraphDB:
     # 스키마 초기화
     # ------------------------------------------------------------------
 
-    def init_schema(self) -> None:
+    # 벡터 인덱스 이름 — vector_search()가 같은 이름을 참조한다.
+    VECTOR_INDEX_NAME = "document_embedding"
+
+    def init_schema(self, embedding_dimensions: int = 1024) -> None:
         """제약조건(Constraint) 및 인덱스를 생성한다.
 
         멱등성 보장 — 이미 존재하면 무시된다 (IF NOT EXISTS).
+
+        Args:
+            embedding_dimensions: 벡터 인덱스 차원. settings.embedding_dimension에서 받는다.
+                Neo4j 5.11+에서만 vector index가 동작하며, 미지원 버전이면 인덱스
+                생성이 실패할 수 있으므로 try/except로 감싸 다른 인덱스 생성을 막지 않는다.
         """
         statements = [
             # 유니크 제약
@@ -82,6 +90,27 @@ class GraphDB:
         with self._driver.session() as session:
             for stmt in statements:
                 session.run(stmt)
+            # 벡터 인덱스 — Neo4j 5.11+ 필요. 실패해도 풀스캔 폴백이 동작한다.
+            try:
+                session.run(
+                    f"""
+                    CREATE VECTOR INDEX {self.VECTOR_INDEX_NAME} IF NOT EXISTS
+                    FOR (d:Document) ON d.embedding
+                    OPTIONS {{
+                        indexConfig: {{
+                            `vector.dimensions`: $dim,
+                            `vector.similarity_function`: 'cosine'
+                        }}
+                    }}
+                    """,
+                    dim=int(embedding_dimensions),
+                )
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "벡터 인덱스 생성 실패 (Neo4j 5.11+ 필요) — 풀스캔 폴백으로 동작: %s",
+                    exc,
+                )
 
     # ------------------------------------------------------------------
     # Document CRUD
@@ -244,6 +273,72 @@ class GraphDB:
     # 검색 (RAG)
     # ------------------------------------------------------------------
 
+    def vector_search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        para_filter: list[str] | None = None,
+    ) -> list[dict] | None:
+        """Neo4j 벡터 인덱스를 사용해 코사인 유사도 top_k를 반환한다.
+
+        para_filter가 있을 때는 인덱스에서 top_k의 5배까지 끌어와 사후 필터링한다.
+        인덱스가 없거나(Neo4j 5.10 이하 / init_schema 미실행) 쿼리 실패 시 None을 반환해
+        호출자가 풀스캔 폴백으로 처리하도록 한다.
+
+        Args:
+            query_embedding: 쿼리 임베딩 벡터
+            top_k: 반환할 최대 문서 수
+            para_filter: 검색할 PARA 카테고리 목록 (None이면 전체)
+        Returns:
+            score 내림차순 dict 목록 또는 None (인덱스 미사용 시)
+        """
+        index_name = self.VECTOR_INDEX_NAME
+        try:
+            with self._driver.session() as session:
+                if para_filter:
+                    pool = max(top_k * 5, top_k)
+                    rows = session.run(
+                        """
+                        CALL db.index.vector.queryNodes($index, $pool, $query)
+                        YIELD node, score
+                        WITH node, score
+                        WHERE node.para_category IN $para_filter
+                        RETURN node.id AS id, node.title AS title, node.path AS path,
+                               node.content AS content,
+                               node.para_category AS para_category, node.tags AS tags,
+                               score
+                        ORDER BY score DESC
+                        LIMIT $top_k
+                        """,
+                        index=index_name,
+                        pool=pool,
+                        query=query_embedding,
+                        para_filter=para_filter,
+                        top_k=top_k,
+                    ).data()
+                else:
+                    rows = session.run(
+                        """
+                        CALL db.index.vector.queryNodes($index, $top_k, $query)
+                        YIELD node, score
+                        RETURN node.id AS id, node.title AS title, node.path AS path,
+                               node.content AS content,
+                               node.para_category AS para_category, node.tags AS tags,
+                               score
+                        """,
+                        index=index_name,
+                        top_k=top_k,
+                        query=query_embedding,
+                    ).data()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug(
+                "vector_search 실패 — 풀스캔 폴백: %s", exc
+            )
+            return None
+
+        return rows
+
     def search_similar_by_embedding(
         self,
         query_embedding: list[float],
@@ -252,16 +347,29 @@ class GraphDB:
     ) -> list[dict]:
         """쿼리 임베딩과 코사인 유사도가 높은 Document를 반환한다.
 
-        임베딩이 저장된 문서에 한해 Python-side 코사인 유사도를 계산한다.
-        유사도 계산 시 content는 제외하고, 상위 top_k 문서에 대해서만 별도 조회한다.
+        Neo4j 벡터 인덱스를 우선 사용하고, 인덱스가 없으면 Python-side 풀스캔으로
+        폴백한다. 결과 형식은 두 경로 모두 동일 — score, id, title, path, content,
+        para_category, tags 필드를 포함한다.
 
         Args:
             query_embedding: 쿼리 임베딩 벡터
             top_k: 반환할 최대 문서 수
             para_filter: 검색할 PARA 카테고리 목록 (None이면 전체)
         Returns:
-            score 내림차순으로 정렬된 문서 dict 목록 (embedding 필드 제외)
+            score 내림차순 문서 dict 목록
         """
+        rows = self.vector_search(query_embedding, top_k=top_k, para_filter=para_filter)
+        if rows is not None:
+            return rows
+        return self._fullscan_search_similar(query_embedding, top_k, para_filter)
+
+    def _fullscan_search_similar(
+        self,
+        query_embedding: list[float],
+        top_k: int,
+        para_filter: list[str] | None,
+    ) -> list[dict]:
+        """벡터 인덱스를 못 쓰는 환경을 위한 풀스캔 폴백 (Python 코사인)."""
         import numpy as np
 
         with self._driver.session() as session:

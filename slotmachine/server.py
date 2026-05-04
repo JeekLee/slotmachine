@@ -219,7 +219,7 @@ def init_vault() -> dict:
     db = _make_db(settings)
     embedding_provider = _make_embedding_provider(settings)
 
-    db.init_schema()
+    db.init_schema(embedding_dimensions=settings.embedding_dimension)
 
     from slotmachine.sync.full_sync import full_sync
     result = full_sync(
@@ -379,8 +379,9 @@ def _build_similarity_map(
 ) -> tuple[dict[str, dict], bool]:
     """INBOX 문서별 유사 문서 + 카테고리 힌트를 산출한다.
 
-    임베딩 프로바이더, GraphDB 접근, 캐시 로드 중 하나라도 실패하면
+    임베딩 프로바이더 또는 Neo4j 접속 중 하나라도 실패하면
     빈 dict + similarity_enabled=False를 반환한다 (graceful degradation).
+    검색은 Neo4j 벡터 인덱스를 우선 사용하고, 인덱스가 없으면 풀스캔 폴백한다.
     """
     if not docs:
         return {}, False
@@ -389,25 +390,10 @@ def _build_similarity_map(
     if embedding_provider is None:
         return {}, False
 
-    embeddings_cache: list[dict] = []
     try:
         db = _make_db(settings)
     except Exception as exc:
         logger.warning("Neo4j 접속 실패 — 유사도 매칭 생략: %s", exc)
-        return {}, False
-
-    try:
-        embeddings_cache = db.load_embeddings_cache()
-    except Exception as exc:
-        logger.warning("임베딩 캐시 로드 실패 — 유사도 매칭 생략: %s", exc)
-        embeddings_cache = []
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
-
-    if not embeddings_cache:
         return {}, False
 
     from slotmachine.classifier.similarity import (
@@ -417,37 +403,44 @@ def _build_similarity_map(
     from slotmachine.sync.parser import parse_document
 
     similar_map: dict[str, dict] = {}
-    for doc in docs:
-        if doc.oversized:
-            continue
-        try:
-            full = parse_document(settings.vault_path / doc.path)
-            similar = find_similar_for_inbox(
-                full.raw_content,
-                full.tags,
-                embedding_provider,
-                embeddings_cache,
-            )
-        except Exception as exc:
-            logger.warning("유사도 매칭 실패 — %s: %s", doc.path, exc)
-            continue
+    try:
+        for doc in docs:
+            if doc.oversized:
+                continue
+            try:
+                full = parse_document(settings.vault_path / doc.path)
+                similar = find_similar_for_inbox(
+                    full.raw_content,
+                    full.tags,
+                    embedding_provider,
+                    db,
+                )
+            except Exception as exc:
+                logger.warning("유사도 매칭 실패 — %s: %s", doc.path, exc)
+                continue
 
-        if not similar:
-            continue
-        similar_map[doc.path] = {
-            "similar_documents": [
-                {
-                    "title": s.title,
-                    "path": s.path,
-                    "para_category": s.para_category,
-                    "score": s.score,
-                    "vector_score": s.vector_score,
-                    "tags": s.tags,
-                }
-                for s in similar
-            ],
-            "category_hints": compute_category_hints(similar),
-        }
+            if not similar:
+                continue
+            similar_map[doc.path] = {
+                "similar_documents": [
+                    {
+                        "title": s.title,
+                        "path": s.path,
+                        "para_category": s.para_category,
+                        "score": s.score,
+                        "vector_score": s.vector_score,
+                        "tags": s.tags,
+                    }
+                    for s in similar
+                ],
+                "category_hints": compute_category_hints(similar),
+            }
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
     return similar_map, True
 
 

@@ -83,7 +83,8 @@ def test_verify_connectivity_delegates():
 # init_schema
 # ---------------------------------------------------------------------------
 
-def test_init_schema_runs_five_statements():
+def test_init_schema_runs_six_statements():
+    """5개 제약/인덱스 + 1개 벡터 인덱스(Neo4j 5.11+)."""
     db, mock_driver = _make_db()
     mock_session = MagicMock()
     mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
@@ -91,7 +92,33 @@ def test_init_schema_runs_five_statements():
 
     db.init_schema()
 
-    assert mock_session.run.call_count == 5
+    assert mock_session.run.call_count == 6
+
+
+def test_init_schema_passes_dimension_to_vector_index():
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    db.init_schema(embedding_dimensions=1536)
+
+    # 마지막 호출이 vector index 생성이고 dim=1536이 전달되어야 함
+    last_call = mock_session.run.call_args_list[-1]
+    assert "VECTOR INDEX" in last_call.args[0]
+    assert last_call.kwargs.get("dim") == 1536
+
+
+def test_init_schema_swallows_vector_index_failure():
+    """Neo4j 5.10 이하에서 vector index 문법 미지원이어도 init_schema는 성공해야 한다."""
+    db, mock_driver = _make_db()
+    mock_session = MagicMock()
+    # 마지막(vector index) statement만 실패
+    mock_session.run.side_effect = [None, None, None, None, None, RuntimeError("syntax")]
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    db.init_schema()  # 예외 없이 끝나야 함
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 """classifier.similarity 단위 테스트."""
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from slotmachine.classifier.similarity import (
     SimilarDocument,
     compute_category_hints,
@@ -29,76 +31,60 @@ class FakeEmbedder:
         return [0.0, 0.0, 0.0]
 
 
+def _make_db(rows: list[dict]) -> MagicMock:
+    """db.search_similar_by_embedding이 정해진 rows를 반환하는 mock."""
+    db = MagicMock()
+    db.search_similar_by_embedding.return_value = rows
+    return db
+
+
 # ---------------------------------------------------------------------------
 # find_similar_for_inbox
 # ---------------------------------------------------------------------------
 
 
 class TestFindSimilarForInbox:
-    def test_returns_top_k_by_cosine(self):
-        """벡터 유사도 내림차순으로 top_k 반환."""
+    def test_returns_top_k_by_score(self):
+        """vector_search 결과를 그대로 받아 score 내림차순 top_k 반환."""
         provider = FakeEmbedder({"crypto": [1.0, 0.0, 0.0]})
-        cache = [
-            {
-                "path": "Resources/RustBook.md",
-                "title": "RustBook",
-                "para_category": "Resources",
-                "tags": [],
-                "embedding": [0.0, 1.0, 0.0],  # 직교 → score 0
-            },
-            {
-                "path": "Projects/Rocky.md",
-                "title": "Rocky",
-                "para_category": "Projects",
-                "tags": [],
-                "embedding": [1.0, 0.0, 0.0],  # 동일 방향 → score 1
-            },
-            {
-                "path": "Resources/Algo.md",
-                "title": "Algo",
-                "para_category": "Resources",
-                "tags": [],
-                "embedding": [0.9, 0.1, 0.0],  # 거의 동일
-            },
-        ]
+        db = _make_db([
+            {"path": "Projects/Rocky.md", "title": "Rocky",
+             "para_category": "Projects", "tags": [], "score": 1.0},
+            {"path": "Resources/Algo.md", "title": "Algo",
+             "para_category": "Resources", "tags": [], "score": 0.95},
+            {"path": "Resources/RustBook.md", "title": "RustBook",
+             "para_category": "Resources", "tags": [], "score": 0.0},
+        ])
         result = find_similar_for_inbox(
-            "crypto trading idea", [], provider, cache, top_k=2, threshold=0.1
+            "crypto trading idea", [], provider, db, top_k=2, threshold=0.1
         )
         assert len(result) == 2
-        # 가장 유사한 Rocky가 1위
         assert result[0].path == "Projects/Rocky.md"
         assert result[1].path == "Resources/Algo.md"
         assert result[0].score >= result[1].score
+        # GraphDB가 호출된 인자 — top_k는 내부에서 *3으로 끌어온다
+        assert db.search_similar_by_embedding.call_args.kwargs["top_k"] == 6
 
     def test_threshold_filters_low_scores(self):
         provider = FakeEmbedder({"x": [1.0, 0.0]})
-        cache = [
-            {
-                "path": "A.md",
-                "title": "A",
-                "para_category": "Resources",
-                "tags": [],
-                "embedding": [0.0, 1.0],  # 직교 (score=0)
-            },
-        ]
-        result = find_similar_for_inbox("x", [], provider, cache, threshold=0.5)
+        db = _make_db([
+            {"path": "A.md", "title": "A",
+             "para_category": "Resources", "tags": [], "score": 0.0},
+        ])
+        result = find_similar_for_inbox("x", [], provider, db, threshold=0.5)
         assert result == []
 
     def test_tag_overlap_boosts_score(self):
         """태그 교집합이 있으면 점수에 +0.05~0.20 보너스."""
         provider = FakeEmbedder({"x": [1.0, 0.0]})
-        cache = [
-            {
-                "path": "A.md",
-                "title": "A",
-                "para_category": "Resources",
-                "tags": ["python", "rust"],
-                "embedding": [0.6, 0.8],  # 코사인 ~0.6
-            },
+        rows = [
+            {"path": "A.md", "title": "A",
+             "para_category": "Resources",
+             "tags": ["python", "rust"], "score": 0.6},
         ]
-        no_tag = find_similar_for_inbox("x", [], provider, cache, threshold=0.0)
+        no_tag = find_similar_for_inbox("x", [], provider, _make_db(rows), threshold=0.0)
         with_tag = find_similar_for_inbox(
-            "x", ["python", "rust"], provider, cache, threshold=0.0
+            "x", ["python", "rust"], provider, _make_db(rows), threshold=0.0
         )
         assert with_tag[0].score > no_tag[0].score
         # 태그 2개 → +0.10
@@ -108,56 +94,33 @@ class TestFindSimilarForInbox:
         """태그 5개 이상이어도 보너스는 0.20에서 멈춘다."""
         provider = FakeEmbedder({"x": [1.0, 0.0]})
         many_tags = ["t1", "t2", "t3", "t4", "t5", "t6", "t7"]
-        cache = [
-            {
-                "path": "A.md",
-                "title": "A",
-                "para_category": "Resources",
-                "tags": many_tags,
-                "embedding": [1.0, 0.0],  # score=1
-            },
-        ]
+        db = _make_db([
+            {"path": "A.md", "title": "A",
+             "para_category": "Resources", "tags": many_tags, "score": 1.0},
+        ])
         result = find_similar_for_inbox(
-            "x", many_tags, provider, cache, threshold=0.0
+            "x", many_tags, provider, db, threshold=0.0
         )
         # vector_score=1.0 + boost(0.20 cap) → final=1.0 (min cap)
         assert result[0].score == 1.0
         assert result[0].vector_score == 1.0
 
-    def test_empty_cache_returns_empty(self):
+    def test_empty_db_returns_empty(self):
         provider = FakeEmbedder({"x": [1.0]})
-        assert find_similar_for_inbox("x", [], provider, []) == []
+        assert find_similar_for_inbox("x", [], provider, _make_db([])) == []
 
     def test_no_provider_returns_empty(self):
-        cache = [{"path": "A.md", "embedding": [1.0]}]
-        assert find_similar_for_inbox("x", [], None, cache) == []
+        db = _make_db([{"path": "A.md", "score": 1.0}])
+        assert find_similar_for_inbox("x", [], None, db) == []
+
+    def test_no_db_returns_empty(self):
+        provider = FakeEmbedder({"x": [1.0]})
+        assert find_similar_for_inbox("x", [], provider, None) == []
 
     def test_empty_text_returns_empty(self):
         provider = FakeEmbedder({"x": [1.0]})
-        cache = [{"path": "A.md", "embedding": [1.0]}]
-        assert find_similar_for_inbox("   ", [], provider, cache) == []
-
-    def test_skips_rows_without_embedding(self):
-        provider = FakeEmbedder({"x": [1.0, 0.0]})
-        cache = [
-            {
-                "path": "A.md",
-                "title": "A",
-                "para_category": "Resources",
-                "tags": [],
-                "embedding": None,
-            },
-            {
-                "path": "B.md",
-                "title": "B",
-                "para_category": "Projects",
-                "tags": [],
-                "embedding": [1.0, 0.0],
-            },
-        ]
-        result = find_similar_for_inbox("x", [], provider, cache, threshold=0.0)
-        assert len(result) == 1
-        assert result[0].path == "B.md"
+        db = _make_db([{"path": "A.md", "score": 1.0}])
+        assert find_similar_for_inbox("   ", [], provider, db) == []
 
     def test_provider_failure_returns_empty(self):
         """embed_one_safe가 None을 반환하면(2회 재시도 모두 실패) 빈 리스트."""
@@ -169,23 +132,23 @@ class TestFindSimilarForInbox:
             def embed(self, texts):
                 raise RuntimeError("network error")
 
-        cache = [{"path": "A.md", "embedding": [1.0]}]
-        assert find_similar_for_inbox("x", [], FailingProvider(), cache) == []
+        db = _make_db([{"path": "A.md", "score": 1.0}])
+        assert find_similar_for_inbox("x", [], FailingProvider(), db) == []
 
-    def test_zero_vector_yields_zero_score(self):
-        """0 벡터는 nan 대신 0.0 처리."""
-        provider = FakeEmbedder({"x": [0.0, 0.0]})
-        cache = [
-            {
-                "path": "A.md",
-                "title": "A",
-                "para_category": "Resources",
-                "tags": [],
-                "embedding": [1.0, 0.0],
-            },
-        ]
-        result = find_similar_for_inbox("x", [], provider, cache, threshold=-1.0)
-        assert result[0].vector_score == 0.0
+    def test_db_search_failure_returns_empty(self):
+        """search_similar_by_embedding이 예외를 던지면 빈 리스트로 폴백."""
+        provider = FakeEmbedder({"x": [1.0, 0.0]})
+        db = MagicMock()
+        db.search_similar_by_embedding.side_effect = RuntimeError("neo4j down")
+        assert find_similar_for_inbox("x", [], provider, db) == []
+
+    def test_filters_to_non_archive_categories(self):
+        """검색 시 Archives 제외, Projects/Areas/Resources만 후보."""
+        provider = FakeEmbedder({"x": [1.0]})
+        db = _make_db([])
+        find_similar_for_inbox("x", [], provider, db)
+        kwargs = db.search_similar_by_embedding.call_args.kwargs
+        assert set(kwargs["para_filter"]) == {"Projects", "Areas", "Resources"}
 
 
 # ---------------------------------------------------------------------------
