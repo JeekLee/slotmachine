@@ -1,6 +1,6 @@
 ---
 description: INBOX 문서를 PARA 자동 분류하고 사용자 승인 후 파일 이동
-allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__get_document_contents, mcp__slotmachine__get_templates, mcp__slotmachine__apply_classification, mcp__slotmachine__suggest_links
+allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__get_document_contents, mcp__slotmachine__get_templates, mcp__slotmachine__apply_classification
 ---
 
 # /slotmachine:inbox — INBOX PARA 자동 분류
@@ -91,19 +91,18 @@ N개 문서 분류 결과:
 - **번호 입력**: 해당 문서의 카테고리/위치를 사용자가 수정 후 재확인
 - **N**: 취소
 
-### 5단계 — 관련 문서 탐색 (벡터 기반)
+### 5단계 — 관련 문서 결정 (1단계 similar_documents 재사용)
 
-이동 대상 문서(Inbox 유지 제외)마다 `suggest_links` 툴을 호출한다.
+INBOX 문서는 GraphDB에 등록되지 않으므로 `suggest_links`는 호출하지 않는다 (호출해도 빈 결과).
+대신 1단계 `classify_inbox` 응답에 들어있는 각 문서의 `similar_documents`를 그대로 사용한다.
 
-```json
-{ "path": "INBOX/앱_출시_체크리스트.md", "top_k": 5, "threshold": 0.5 }
-```
+이동 대상 문서(Inbox 유지 제외)마다:
 
-- 후보가 반환되면 → 해당 문서의 링크 후보로 메모한다.
-- 후보가 없으면 (GraphDB에 미등록된 신규 문서 등) → `vault_structure[category].doc_titles` 기반 LLM 판단으로 폴백한다.
+- `similar_documents`가 1개 이상 있으면 → 해당 후보들을 링크 후보로 메모한다.
+- 비어있으면 (`similarity_enabled=false` 이거나 임베딩 실패) → `vault_structure[category].doc_titles` 기반 LLM 판단으로 폴백한다.
 
-> `suggest_links`는 vault 전체를 대상으로 벡터 유사도 + 그래프 근접성 점수를 계산하므로,
-> 단순 제목 목록 기반 판단보다 정확한 관련 문서를 찾아낸다.
+> `similar_documents`는 INBOX 문서를 즉석에서 임베딩해 vault 전체와 코사인 유사도 + 태그 교집합으로 산출한
+> top-3 후보다. INBOX가 그래프에 없어 그래프 근접성은 빠지지만, 분류·링크 후보로는 충분하다.
 
 ### 5.5단계 — 파일명 제안
 
@@ -113,8 +112,8 @@ N개 문서 분류 결과:
 
 | 우선순위 | 조건 | 참고 데이터 |
 |---------|------|------------|
-| 1 | `suggest_links` 결과가 1개 이상 | 관련 문서 상위 3개의 파일명 stem 패턴 |
-| 2 | 관련 문서 없음 (threshold 미달 / GraphDB 미등록) | `vault_structure[category].doc_titles` (목적지 폴더 파일명 목록) |
+| 1 | `similar_documents` 결과가 1개 이상 | 5단계에서 메모한 관련 문서 상위 3개의 파일명 stem 패턴 |
+| 2 | 관련 문서 없음 (threshold 미달 / similarity_enabled=false) | `vault_structure[category].doc_titles` (목적지 폴더 파일명 목록) |
 | 3 | 목적지 폴더가 비어있거나 패턴 파악 불가 | 기존 파일명 유지 ("변경 불필요") |
 
 #### 파일명 생성 규칙
