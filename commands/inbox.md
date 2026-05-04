@@ -12,8 +12,12 @@ allowed-tools: mcp__slotmachine__classify_inbox, mcp__slotmachine__get_document_
 `classify_inbox` 툴을 호출한다.
 
 반환값:
-- `documents`: INBOX 문서 목록 (path / title / tags / excerpt)
+- `documents`: INBOX 문서 목록 (path / title / tags / excerpt / **similar_documents** / **category_hints**)
+  - `similar_documents`: 임베딩 유사도 + 태그 교집합으로 매칭된 기존 vault 문서 top-3
+    각 항목: `{title, path, para_category, score, vector_score, tags}`
+  - `category_hints`: 후보들의 카테고리별 가중 점수 분포 (예: `{"Resources": 0.78, "Projects": 0.22}`)
 - `vault_structure`: 카테고리별 하위 디렉토리 및 기존 문서 제목
+- `similarity_enabled`: 유사도 매칭 사용 가능 여부 (false면 임베딩/Neo4j 접근 실패 — 매칭 결과 없음)
 
 문서가 없으면 "INBOX가 비어 있습니다." 라고 알리고 중단한다.
 
@@ -39,11 +43,13 @@ INBOX에 N개의 문서가 있습니다.
 - **번호 입력** (예: `1 3 5`): 해당 번호 문서만 분류 진행
 - **N**: 중단
 
-### 3단계 — PARA 분류 및 배치 위치 결정 (excerpt 기반)
+### 3단계 — PARA 분류 및 배치 위치 결정 (excerpt + 유사 문서 기반)
 
-선택된 문서 각각에 대해 excerpt와 메타데이터만으로 다음을 판단한다.
+선택된 문서 각각에 대해 excerpt, 메타데이터, **유사 문서 힌트**로 다음을 판단한다.
 
 #### 3-1. PARA 카테고리 결정
+
+기본 기준:
 
 | 카테고리 | 기준 |
 |----------|------|
@@ -53,11 +59,18 @@ INBOX에 N개의 문서가 있습니다.
 | Archives | 완료되었거나 더 이상 활성화되지 않은 항목 |
 | Inbox | 내용이 모호해 판단하기 어려운 경우 |
 
+**유사 문서 힌트 활용** (`similarity_enabled=true`일 때):
+
+- `category_hints`의 최상위 카테고리가 강하게 우세(예: ≥ 0.6)하면 그쪽을 우선 후보로 본다.
+- `similar_documents`의 상위 후보 score(≥ 0.75)가 한 카테고리에 몰려 있으면 같은 카테고리로 분류하는 게 자연스럽다.
+- excerpt 판단과 힌트가 충돌하면 **excerpt가 우선** — 힌트는 어디까지나 보조 신호. 다만 근거 컬럼에 충돌 사실을 기록한다.
+
 #### 3-2. 하위 디렉토리 결정
 
 `vault_structure[category].subdirs` 목록을 참고해 문서 내용과 가장 관련 있는 하위 디렉토리를 선택한다.
 
-- 적합한 하위 디렉토리가 있으면 → `target_folder`로 지정 (예: `20_Projects/CryptoLab/Rocky`)
+- **`similar_documents` 상위 후보의 `path`가 특정 하위 디렉토리에 몰려 있으면** 그 디렉토리를 `target_folder`로 우선 고려 (예: top-3 중 2개가 `30_Areas/Health/` 아래 → `30_Areas/Health` 채택).
+- 그 외에는 vault_structure를 보고 가장 적합한 하위 디렉토리를 선택.
 - 없으면 → category 루트 폴더 사용 (target_folder 생략)
 
 ### 4단계 — 분류 결과 표시 및 승인 요청
