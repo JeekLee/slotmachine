@@ -327,13 +327,18 @@ def recall(
 def classify_inbox() -> dict:
     """INBOX 폴더의 문서를 로드해 분류에 필요한 정보를 반환한다.
 
-    분류 판단은 호스트 LLM(Claude Code)이 excerpt 기반으로 수행한다.
+    분류 판단은 호스트 LLM(Claude Code)이 excerpt + 유사 문서 힌트 기반으로 수행한다.
     full_content와 templates는 이 툴에서 반환하지 않는다.
     - 문서 전체 내용: get_document_contents() 로 별도 요청
     - 카테고리 템플릿: get_templates() 로 별도 요청
 
+    각 INBOX 문서마다 임베딩 기반 유사도로 기존 vault 문서 top-3과
+    카테고리별 가중 점수 분포(category_hints)를 첨부한다.
+    임베딩 프로바이더가 없거나 GraphDB 접근 실패 시 빈 결과로 폴백한다.
+
     Returns:
-        inbox_path, 문서 목록(path/title/tags/excerpt), vault_structure, 총 문서 수
+        inbox_path, 문서 목록(path/title/tags/excerpt + similar_documents/category_hints),
+        vault_structure, similarity_enabled 플래그, 총 문서 수
     """
     settings = get_settings()
 
@@ -342,6 +347,8 @@ def classify_inbox() -> dict:
 
     # vault 하위 디렉토리 구조 + 기존 문서 목록
     vault_structure = get_vault_structure(settings.vault_path, settings.para_folder_map)
+
+    similar_map, similarity_enabled = _build_similarity_map(settings, docs)
 
     return {
         "inbox_path": str(settings.inbox_path),
@@ -353,12 +360,95 @@ def classify_inbox() -> dict:
                 "tags": doc.tags,
                 "excerpt": doc.excerpt,
                 "oversized": doc.oversized,
+                **similar_map.get(
+                    doc.path,
+                    {"similar_documents": [], "category_hints": {}},
+                ),
             }
             for doc in docs
         ],
         "oversized_count": sum(1 for doc in docs if doc.oversized),
         "vault_structure": vault_structure,
+        "similarity_enabled": similarity_enabled,
     }
+
+
+def _build_similarity_map(
+    settings: Settings,
+    docs: list,
+) -> tuple[dict[str, dict], bool]:
+    """INBOX 문서별 유사 문서 + 카테고리 힌트를 산출한다.
+
+    임베딩 프로바이더, GraphDB 접근, 캐시 로드 중 하나라도 실패하면
+    빈 dict + similarity_enabled=False를 반환한다 (graceful degradation).
+    """
+    if not docs:
+        return {}, False
+
+    embedding_provider = _make_embedding_provider(settings)
+    if embedding_provider is None:
+        return {}, False
+
+    embeddings_cache: list[dict] = []
+    try:
+        db = _make_db(settings)
+    except Exception as exc:
+        logger.warning("Neo4j 접속 실패 — 유사도 매칭 생략: %s", exc)
+        return {}, False
+
+    try:
+        embeddings_cache = db.load_embeddings_cache()
+    except Exception as exc:
+        logger.warning("임베딩 캐시 로드 실패 — 유사도 매칭 생략: %s", exc)
+        embeddings_cache = []
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    if not embeddings_cache:
+        return {}, False
+
+    from slotmachine.classifier.similarity import (
+        compute_category_hints,
+        find_similar_for_inbox,
+    )
+    from slotmachine.sync.parser import parse_document
+
+    similar_map: dict[str, dict] = {}
+    for doc in docs:
+        if doc.oversized:
+            continue
+        try:
+            full = parse_document(settings.vault_path / doc.path)
+            similar = find_similar_for_inbox(
+                full.raw_content,
+                full.tags,
+                embedding_provider,
+                embeddings_cache,
+            )
+        except Exception as exc:
+            logger.warning("유사도 매칭 실패 — %s: %s", doc.path, exc)
+            continue
+
+        if not similar:
+            continue
+        similar_map[doc.path] = {
+            "similar_documents": [
+                {
+                    "title": s.title,
+                    "path": s.path,
+                    "para_category": s.para_category,
+                    "score": s.score,
+                    "vector_score": s.vector_score,
+                    "tags": s.tags,
+                }
+                for s in similar
+            ],
+            "category_hints": compute_category_hints(similar),
+        }
+    return similar_map, True
 
 
 @mcp.tool()
