@@ -173,9 +173,21 @@ def _make_graphdb_with_session():
 
 
 class TestGraphDBSearch:
+    """search_similar_by_embedding의 풀스캔 폴백 동작을 검증한다.
+
+    벡터 인덱스는 Neo4j 5.11+ 실인스턴스가 있어야 검증 가능하므로,
+    여기서는 vector_search()가 None을 반환하는 환경(인덱스 미존재)에서
+    Python-side 코사인 폴백이 정상 동작하는지만 확인한다.
+    """
+
+    def _force_fullscan(self, db, mock_session, rows):
+        """vector_search를 None 반환으로 강제하고 풀스캔만 mock 데이터를 받게 한다."""
+        db.vector_search = MagicMock(return_value=None)
+        mock_session.run.return_value.data.return_value = rows
+
     def test_search_similar_empty_when_no_docs(self):
         db, mock_session = _make_graphdb_with_session()
-        mock_session.run.return_value.data.return_value = []
+        self._force_fullscan(db, mock_session, [])
 
         result = db.search_similar_by_embedding([0.1, 0.2], top_k=5)
         assert result == []
@@ -188,26 +200,26 @@ class TestGraphDBSearch:
              "embedding": [0.1 * (i + 1), 0.1 * (i + 1)]}
             for i in range(5)
         ]
-        mock_session.run.return_value.data.return_value = rows
+        self._force_fullscan(db, mock_session, rows)
 
         result = db.search_similar_by_embedding([0.9, 0.9], top_k=3)
         assert len(result) == 3
 
     def test_search_similar_excludes_embedding_field(self):
         db, mock_session = _make_graphdb_with_session()
-        mock_session.run.return_value.data.return_value = [
+        self._force_fullscan(db, mock_session, [
             {"title": "T", "path": "/t.md", "content": "c",
              "para_category": "Inbox", "tags": [], "embedding": [0.5, 0.5]}
-        ]
+        ])
         result = db.search_similar_by_embedding([0.5, 0.5], top_k=1)
         assert "embedding" not in result[0]
 
     def test_search_similar_has_score_field(self):
         db, mock_session = _make_graphdb_with_session()
-        mock_session.run.return_value.data.return_value = [
+        self._force_fullscan(db, mock_session, [
             {"title": "T", "path": "/t.md", "content": "c",
              "para_category": "Inbox", "tags": [], "embedding": [1.0, 0.0]}
-        ]
+        ])
         result = db.search_similar_by_embedding([1.0, 0.0], top_k=1)
         assert "score" in result[0]
         assert result[0]["score"] == pytest.approx(1.0)
